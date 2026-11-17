@@ -1,95 +1,98 @@
-// Missions for NEON BAY — an original story. Jax Moreno is out after three years
-// inside and owes Big Sal, the loan shark who owns his late brother's garage.
-// Six missions, each a list of steps the world engine walks through.
-import { PLACES } from './config.js';
+// NEON BAY — story missions (v3 rebuild).
+// Six missions, each with a PAR time (seconds) shown in the summary screen.
+// Step types the world understands: goto, steal_car, deliver, kill, hold,
+// escape, survive. `place` names a key of PLACES (config.js).
 
-export const STORY_INTRO = [
-  'NEON BAY, 2026.',
-  'Jax Moreno is out after three years inside.',
-  'His brother\'s garage is in debt to Big Sal —',
-  'and Sal collects in person.',
-  'Work the jobs. Pay the debt. Get out clean.',
-];
+import { PLACES } from './config.js';
 
 export const MISSIONS = [
   {
     id: 1,
-    title: 'Back in Town',
-    brief: 'Sal\'s boys are watching the garage. Get there on foot, then steal a ride and bring it to the safehouse.',
-    tip: 'Parked cars line the roads — walk up and press E.',
+    name: 'Back in Town',
     par: 90,
-    reward: 200,
+    reward: 250,
+    tip: 'Get back on your feet: steal a car and reach the safehouse.',
     steps: [
-      { type: 'goto', place: 'garage', text: 'Get to Moreno Garage' },
-      { type: 'steal_car', text: 'Steal a car  (walk up to one and press E)' },
-      { type: 'goto', place: 'safehouse', needCar: true, text: 'Drive to the Safehouse' },
+      { type: 'goto', place: 'garage', tip: 'Head to the garage.' },
+      { type: 'steal_car', tip: 'Steal a parked car (E).' },
+      { type: 'goto', place: 'safehouse', needCar: true, tip: 'Drive to the safehouse.' },
     ],
   },
   {
     id: 2,
-    title: 'The Package',
-    brief: 'A courier job for Club Mirage. Pick the package up at the docks, then deliver it to the club in 90 seconds. Don\'t wreck the car.',
-    tip: 'The delivery car is fast. Don\'t stop for anything.',
+    name: 'The Package',
     par: 150,
-    reward: 350,
+    reward: 400,
+    tip: 'Pick up the package at the docks and deliver it to Club Neon.',
     steps: [
-      { type: 'goto', place: 'docks', text: 'Pick up the package at the Docks' },
-      { type: 'deliver', place: 'club', time: 90, text: 'Deliver to Club Mirage — 90 seconds!' },
+      { type: 'goto', place: 'docks', tip: 'Go to the docks to pick up the package.' },
+      { type: 'deliver', place: 'club', tip: 'Deliver the package to Club Neon. Do not wreck the car!' },
     ],
   },
   {
     id: 3,
-    title: 'Crew Call',
-    brief: 'Milo, your old wheelman, is back in town. Pick him up, drive him to the meet — and the Red Vipers heard about it. Expect trouble.',
-    tip: 'Milo waits at the plaza. The Vipers bring friends.',
+    name: 'Crew Call',
     par: 180,
     reward: 500,
+    tip: 'Rally the crew at the warehouse — clear out the lookouts first.',
     steps: [
-      { type: 'goto', place: 'plaza', text: 'Pick up Milo at Liberty Plaza' },
-      { type: 'goto', place: 'meet', needCar: true, text: 'Drive Milo to the meet' },
-      { type: 'kill', count: 4, place: 'meet', text: 'Ambush! Take out 4 Red Vipers' },
+      { type: 'goto', place: 'warehouse', tip: 'Meet the crew at the warehouse.' },
+      { type: 'kill', place: 'warehouse', count: 3, tip: 'Take out the 3 lookouts.' },
+      { type: 'goto', place: 'safehouse', needCar: true, tip: 'Get back to the safehouse.' },
     ],
   },
   {
     id: 4,
-    title: 'Bank of Neon Bay',
-    brief: 'Sal wants his money back with interest. Hit the bank, grab the cash, and lose the cops. Three stars and counting.',
-    tip: 'Stay in the circle to crack the vault, then run.',
+    name: 'Bank of Neon Bay',
     par: 180,
-    reward: 1500,
+    reward: 600,
+    tip: 'Hit the bank, hold the lobby, then lose the heat.',
     steps: [
-      { type: 'goto', place: 'bank', text: 'Get to the Bank of Neon Bay' },
-      { type: 'hold', place: 'bank', seconds: 4, text: 'Crack the vault — stay in the circle!' },
-      { type: 'escape', text: 'Lose the cops! Get your wanted level to zero' },
+      { type: 'goto', place: 'bank', needCar: true, tip: 'Drive to the Bank of Neon Bay.' },
+      { type: 'hold', place: 'bank', seconds: 8, tip: 'Hold the lobby while the safe opens…' },
+      { type: 'escape', tip: 'Lose the cops — get your wanted level to zero.' },
+      { type: 'goto', place: 'safehouse', needCar: true, tip: 'Lay low at the safehouse.' },
     ],
   },
   {
     id: 5,
-    title: 'Sal\'s Enforcers',
-    brief: 'Sal sent his enforcers to the warehouse to send you a message. Send one back. Take out all six — and their boss, Crusher.',
-    tip: 'Crusher soaks bullets. Use cover and keep moving.',
+    name: "Sal's Enforcers",
     par: 240,
-    reward: 1200,
+    reward: 800,
+    tip: "Sal sent his enforcers to the warehouse. All seven of them.",
     steps: [
-      { type: 'goto', place: 'warehouse', text: 'Get to the Salvatore Warehouse' },
-      { type: 'kill', count: 7, place: 'warehouse', boss: true, text: 'Take out the enforcers (7) — including Crusher' },
+      { type: 'goto', place: 'warehouse', tip: 'Get to the warehouse.' },
+      { type: 'kill', place: 'warehouse', count: 7, boss: true, tip: 'Take out all 7 enforcers — including Sal.' },
     ],
   },
   {
     id: 6,
-    title: 'The Long Goodbye',
-    brief: 'One last run. The whole Neon Bay PD is on you. Reach the airfield and fly out — four stars, forty-five seconds of hell, no turning back.',
-    tip: 'Keep driving. Forty-five seconds is all it takes.',
+    name: 'The Long Goodbye',
     par: 150,
-    reward: 3000,
+    reward: 1000,
+    tip: 'The whole city is after you. Survive 45 seconds, then vanish.',
     steps: [
-      { type: 'goto', place: 'airport', text: 'Reach the Neon Bay Airfield' },
-      { type: 'survive', seconds: 45, text: 'Survive the manhunt — 45 seconds!' },
-      { type: 'goto', place: 'airport', text: 'Get to the runway plane' },
+      { type: 'survive', seconds: 45, tip: 'Survive! Keep moving and stay alive.' },
     ],
   },
 ];
 
+/**
+ * The world position a step points at (for goto/deliver/hold/kill), or null
+ * for steps with no destination (steal_car, escape, survive).
+ * Returns the PLACES entry itself (same object reference every call) so
+ * callers that compare targets by reference (the winrate driver) keep a
+ * stable target instead of rebuilding their driver every frame.
+ */
 export function missionPlace(step) {
-  return step.place ? PLACES[step.place] : null;
+  if (!step || !step.place) return null;
+  return PLACES[step.place] ?? null;
+}
+
+/** Format seconds as m:ss. */
+export function fmtTime(s) {
+  if (s === null || s === undefined || !Number.isFinite(s)) return '—';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
 }

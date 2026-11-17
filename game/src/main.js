@@ -1,237 +1,136 @@
-// NEON BAY entrypoint: game loop, screens, input wiring, audio hooks, save/load.
-// Loads with no network request: only local ES modules under game/src/.
-// Shot mode (?shot=start|play|chase|mission) stages a deterministic scene and
-// sets window.__shotReady so the screenshot tool knows the frame is ready.
-import { STEP, SAVE_KEY } from './config.js';
-import { createWorld, startMission, stepWorld, loadProgress, saveProgress, loadBestTimes } from './world.js';
-import { createRenderer } from './render.js';
-import { createInput } from './input.js';
-import { stageShot } from './shots.js';
-import {
-  ensureAudio, playShot, playPunch, playBlip, playJingle, playCrash,
-  playPickup, playFail, playHonk, setEngine, setSiren, toggleMute,
-} from './audio.js';
+// main.js — NEON BAY entrypoint.
+// Boots the canvas, wires keyboard/mouse input, runs the fixed-step loop,
+// and renders the world. All simulation lives in world.js; this file only
+// connects the browser to it.
+
+import { createWorld, startMission, stepWorld } from './world.js';
+import { createInput, attachInput, pollInput } from './input.js';
+import { render, loadBestTime, saveBestTime } from './render.js';
+import { setupShot, shotFromUrl } from './shots.js';
+import { CITY, STEP } from './config.js';
 
 const canvas = document.getElementById('game');
-const renderer = createRenderer(canvas);
-const input = createInput(canvas);
+const ctx = canvas.getContext('2d');
 
-// The module loaded: drop the loading text from index.html.
-document.getElementById('loading')?.remove();
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
 
-const params = new URLSearchParams(location.search);
-const shotName = params.get('shot');
-const seed = Number(params.get('seed') || 1);
+let world = createWorld((Math.random() * 1e9) | 0);
+let bestTime = loadBestTime();
+let bestSavedForRun = false;
 
-const world = createWorld(seed);
-let screen = shotName ? 'shot' : 'title';
+const input = createInput();
+attachInput(input, canvas);
 
-// Debug hook for the playtest tool (read-only state snapshot).
+// Screenshot mode (?shot=start|play|chase|mission) — used by tools/shots.mjs.
+const shot = shotFromUrl();
+if (shot) {
+  setupShot(world, shot);
+  // Freeze the world for a clean capture (no simulation advance).
+  world.frozen = true;
+  // Hide the loading veil at once (no fade): the shots harness screenshots
+  // as soon as __shotReady is set, and the veil would otherwise cover the
+  // canvas in every capture.
+  const veil = document.getElementById('loading');
+  if (veil) veil.style.display = 'none';
+}
+
+// Expose a small state summary for the playtest / debugging.
 window.__gameState = () => ({
-  screen,
-  worldScreen: world.screen,
-  mission: world.mission ? {
-    id: world.mission.def.id, step: world.mission.step?.type ?? null,
-    stepIndex: world.mission.stepIndex, done: world.mission.done, failed: world.mission.failed,
-  } : null,
-  player: {
-    x: Math.round(world.player.x), y: Math.round(world.player.y),
-    health: Math.round(world.player.health), money: world.player.money,
-    inCar: !!world.player.car, weapon: world.player.weapon,
-  },
-  stars: world.stars, heat: Math.round(world.heat),
-  counts: { cars: world.cars.length, peds: world.peds.length, cops: world.cops.length, enemies: world.enemies.length, bullets: world.bullets.length },
-  bestTimes: loadBestTimes(),
-});
-let save = loadProgress();
-let cam = { x: world.player.x, y: world.player.y };
-let shotScreen = 'title';
-let accumulator = 0;
-let lastT = performance.now();
-
-// Tab hidden mid-game: pause instead of letting the city (and the cops) keep
-// running while the player is looking at another tab. Shot mode never pauses.
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && screen === 'play' && !shotName) screen = 'paused';
+  screen: world.screen,
+  missionIndex: world.missionIndex,
+  mission: world.mission ? world.mission.def.name : null,
+  stars: world.stars,
+  money: world.player.money,
+  health: world.player.health,
+  player: { x: Math.round(world.player.x), y: Math.round(world.player.y), inCar: !!world.player.car },
+  over: world.over,
 });
 
-if (shotName) {
-  const staged = stageShot(shotName, world);
-  shotScreen = staged.screen;
-  cam = { x: world.player.x, y: world.player.y };
-  // Render one frame, then signal readiness. No animation loop in shot mode.
-  renderFrame();
-  window.__shotReady = true;
+// Camera follows the player, clamped to the city.
+const view = { camX: 0, camY: 0, zoom: 1, w: canvas.width, h: canvas.height };
+function updateCamera() {
+  view.w = canvas.width;
+  view.h = canvas.height;
+  view.zoom = Math.max(0.55, Math.min(1, Math.min(view.w, view.h) / 900));
+  const vw = view.w / view.zoom;
+  const vh = view.h / view.zoom;
+  view.camX = Math.max(0, Math.min(CITY.SIZE - vw, world.player.x - vw / 2));
+  view.camY = Math.max(0, Math.min(CITY.SIZE - vh, world.player.y - vh / 2));
 }
 
-function currentScreen() {
-  if (screen === 'shot') return shotScreen;
-  if (screen === 'title') return 'title';
-  if (screen === 'paused') return 'paused';
-  return world.screen === 'play' ? 'play' : world.screen;
-}
-
-function worldInput() {
-  const p = world.player;
-  const mouse = input.mouse;
-  const aimWorld = {
-    x: cam.x + (mouse.x - renderer.vw / 2),
-    y: cam.y + (mouse.y - renderer.vh / 2),
-  };
-  return {
-    move: input.moveVector,
-    run: input.run,
-    enterPressed: input.wasPressed('KeyE'),
-    punchPressed: input.wasPressed('Space') || (mouse.clicked && p.weapon === 'fists'),
-    shootHeld: mouse.down && p.weapon === 'pistol',
-    reloadPressed: input.wasPressed('KeyR'),
-    switchPressed: input.wasPressed('KeyQ'),
-    aim: aimWorld,
-  };
-}
-
-function handleEvents() {
-  for (const e of world.events) {
-    if (e === 'shot') playShot();
-    else if (e === 'punch' || e === 'punch_hit') playPunch();
-    else if (e === 'crash') playCrash();
-    else if (e === 'pickup') playPickup();
-    else if (e === 'step_done' || e === 'switch' || e === 'reload') playBlip(e === 'step_done' ? 1047 : 880);
-    else if (e === 'mission_complete') playJingle();
-    else if (e === 'enter_car' || e === 'exit_car') playBlip(660);
-  }
-}
-
-// The fail tone plays once, when the run ends (wasted / busted / failed) —
-// not every frame the screen stays there.
-let failSoundPlayed = false;
-
-function retryMission() {
-  world.over = false;
+function restart() {
+  world = createWorld((Math.random() * 1e9) | 0);
+  bestSavedForRun = false;
   world.screen = 'play';
-  world.screenT = 0;
-  world.heat = 0;
-  world.stars = 0;
-  failSoundPlayed = false;
-  world.player.health = 100;
-  world.player.armor = 0;
-  world.player.car = null;
-  world.player.x = 600;
-  world.player.y = 640;
-  world.player.mag = world.player.magSize;
-  world.cops = [];
-  world.enemies = [];
-  world.bullets = [];
-  // Restart the mission the player was on.
-  const idx = world.mission ? world.missionIndex : 0;
-  startMission(world, idx);
-  cam = { x: world.player.x, y: world.player.y };
+  startMission(world, 0);
 }
 
-function quitToTitle() {
-  screen = 'title';
-  world.over = false;
-  world.screen = 'play';
-  failSoundPlayed = false;
-  save = loadProgress();
-  world.reset(world.seed);
-  cam = { x: world.player.x, y: world.player.y };
-}
-
-function renderFrame() {
-  const scr = currentScreen();
-  renderer.render(world, scr, {
-    cam,
-    aim: { x: input.mouse.x, y: input.mouse.y },
-    save,
-  });
-}
+let last = performance.now();
+let acc = 0;
+let fpsFrames = 0;
+let fpsTime = 0;
 
 function frame(now) {
-  const dt = Math.min(0.1, (now - lastT) / 1000);
-  lastT = now;
-  ensureAudio();
-
-  if (screen === 'title') {
-    if (input.wasPressed('Enter')) {
-      screen = 'play';
-      world.screen = 'play';
-      failSoundPlayed = false;
-      world.reset(world.seed);
-      startMission(world, 0);
-      cam = { x: world.player.x, y: world.player.y };
-    } else if (input.wasPressed('KeyC') && save) {
-      screen = 'play';
-      world.screen = 'play';
-      failSoundPlayed = false;
-      world.reset(world.seed);
-      world.player.money = save.money || 0;
-      startMission(world, Math.min(save.mission || 0, 5));
-      cam = { x: world.player.x, y: world.player.y };
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (!world.frozen) {
+    acc += dt;
+    let guard = 0;
+    // Map screen pixels to world coordinates for mouse aim.
+    const toWorld = (sx, sy) => ({ x: view.camX + sx / view.zoom, y: view.camY + sy / view.zoom });
+    while (acc >= STEP && guard < 5) {
+      stepWorld(world, STEP, pollInput(input, toWorld));
+      acc -= STEP;
+      guard += 1;
     }
-    // Idle city life behind the title.
-    accumulator += dt;
-    while (accumulator >= STEP) {
-      accumulator -= STEP;
-      stepWorld(world, STEP, { move: { x: 0, y: 0, active: false }, run: false, enterPressed: false, punchPressed: false, shootHeld: false, reloadPressed: false, switchPressed: false, aim: { x: 0, y: 0 } });
-    }
-  } else if (screen === 'play') {
-    if (input.wasPressed('KeyP') || input.wasPressed('Escape')) {
-      screen = 'paused';
-    } else if (world.screen === 'wasted' || world.screen === 'busted' || world.screen === 'failed') {
-      if (!failSoundPlayed) { playFail(); failSoundPlayed = true; }
-      if (input.wasPressed('Enter')) retryMission();
-      else if (input.wasPressed('KeyQ')) quitToTitle();
-    } else if (world.screen === 'ending') {
-      if (input.wasPressed('Enter')) {
-        failSoundPlayed = false;
-        world.reset(world.seed);
-        startMission(world, 0);
-        world.screen = 'play';
-        cam = { x: world.player.x, y: world.player.y };
-      }
-    } else {
-      accumulator += dt;
-      const inp = worldInput();
-      while (accumulator >= STEP) {
-        accumulator -= STEP;
-        stepWorld(world, STEP, inp);
-        inp.enterPressed = false;
-        inp.punchPressed = false;
-        inp.reloadPressed = false;
-        inp.switchPressed = false;
-      }
-      handleEvents();
-      // Camera follows the player smoothly.
-      cam.x += (world.player.x - cam.x) * Math.min(1, dt * 6);
-      cam.y += (world.player.y - cam.y) * Math.min(1, dt * 6);
-      // Audio: engine + siren. The horn is sound only — it never moves a ped
-      // or a car, so honking cannot change a chase.
-      const inCar = !!world.player.car;
-      if (inCar && input.hornPressed) playHonk();
-      setEngine(inCar ? Math.abs(world.player.car.speed) / 540 : 0, inCar);
-      setSiren(world.stars > 0);
-    }
-  } else if (screen === 'paused') {
-    if (input.wasPressed('Enter') || input.wasPressed('KeyP') || input.wasPressed('Escape')) {
-      screen = 'play';
-    } else if (input.wasPressed('KeyR')) {
-      retryMission();
-      screen = 'play';
-    } else if (input.wasPressed('KeyQ')) {
-      quitToTitle();
-    }
-    setEngine(0, false);
-    setSiren(false);
+    if (guard >= 5) acc = 0;
   }
-
-  if (input.wasPressed('KeyM')) toggleMute();
-
-  renderFrame();
-  input.endFrame();
+  // Save the best total time once, when a full run ends.
+  if (world.screen === 'ending' && !bestSavedForRun && world.runSummary.totalTime !== null) {
+    bestSavedForRun = true;
+    if (saveBestTime(world.runSummary.totalTime)) {
+      bestTime = world.runSummary.totalTime;
+    }
+  }
+  updateCamera();
+  render(ctx, world, view, now, bestTime);
+  // Signal the shots harness that the scene is ready to capture.
+  if (shot && !window.__shotReady) {
+    window.__shotReady = true;
+  }
+  fpsFrames += 1;
+  fpsTime += dt;
+  if (fpsTime >= 0.5) {
+    const fps = Math.round(fpsFrames / fpsTime);
+    fpsFrames = 0;
+    fpsTime = 0;
+    const el = document.getElementById('fps');
+    if (el) el.textContent = `${fps} FPS`;
+  }
   requestAnimationFrame(frame);
 }
 
-if (!shotName) {
-  requestAnimationFrame(frame);
-}
+// ENTER starts / restarts. M mutes.
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Enter') {
+    if (world.screen === 'title') {
+      world.screen = 'play';
+      startMission(world, 0);
+    } else if (world.screen === 'ending' || world.screen === 'wasted' || world.screen === 'busted' || world.screen === 'failed') {
+      restart();
+    }
+  }
+  if (e.code === 'KeyM') {
+    import('./audio.js').then(({ setMasterVolume }) => {
+      world.muted = !world.muted;
+      setMasterVolume(world.muted ? 0 : 0.5);
+    });
+  }
+});
+
+requestAnimationFrame(frame);

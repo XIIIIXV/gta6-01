@@ -1,11 +1,11 @@
-// NEON BAY — an original open-world crime game for the make.fun gta6-01 bounty.
-// Everything here is original: no Rockstar assets, names, or story elements.
-// Plain static files, no network request, desktop browser, keyboard + mouse.
+// NEON BAY — seeded random helpers (v3 rebuild, written under recording 01a1eabc).
+// Deterministic RNG so a world built from a seed plays the same way every
+// time (the winrate harness replays seeds 1..200 and expects stable results).
 
-// Seeded RNG (mulberry32) so the city and the screenshot scenes are deterministic.
+/** mulberry32: a small fast seeded PRNG. Returns a function yielding [0, 1). */
 export function mulberry32(seed) {
   let a = seed >>> 0;
-  return function () {
+  return function next() {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
@@ -14,46 +14,59 @@ export function mulberry32(seed) {
   };
 }
 
-export function pick(rng, arr) {
-  return arr[Math.floor(rng() * arr.length)];
+/** A handy RNG bundle built on mulberry32. */
+export function makeRng(seed) {
+  const next = mulberry32(seed);
+  return {
+    next,
+    /** Integer in [0, n). */
+    int(n) {
+      return Math.floor(next() * n);
+    },
+    /** Float in [a, b). */
+    range(a, b) {
+      return a + next() * (b - a);
+    },
+    /** Random element of an array. */
+    pick(arr) {
+      return arr[Math.floor(next() * arr.length)];
+    },
+    /** True with probability p. */
+    chance(p) {
+      return next() < p;
+    },
+  };
 }
 
-export function range(rng, min, max) {
-  return min + rng() * (max - min);
-}
-
-export function rangeInt(rng, min, max) {
-  return min + Math.floor(rng() * (max - min + 1));
-}
-
-// Fisher-Yates shuffle: returns a new array in random order (the input is
-// left untouched, so a palette or list can be reshuffled per block/round).
-export function shuffle(rng, arr) {
+/** Fisher–Yates shuffle. Returns a new shuffled array, input untouched. */
+export function shuffle(arr, rng) {
   const out = arr.slice();
   for (let i = out.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    const j = Math.floor(rng.next() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
   }
   return out;
 }
 
-// Pick one entry with probability proportional to its weight. Entries are
-// [value, weight] pairs; a weight of 0 never wins. Useful for variety where
-// some options should be common and others rare (ped shirts, car colors).
-export function weightedPick(rng, entries) {
+/**
+ * Pick one entry by weight. `entries` is [[value, weight], ...]; weights need
+ * not sum to 1. Returns the value.
+ */
+export function weightedPick(entries, rng) {
   let total = 0;
-  for (const [, w] of entries) total += Math.max(0, w);
-  if (total <= 0) return entries[0]?.[0];
-  let roll = rng() * total;
+  for (const [, w] of entries) total += w;
+  let roll = rng.next() * total;
   for (const [value, w] of entries) {
-    roll -= Math.max(0, w);
+    roll -= w;
     if (roll <= 0) return value;
   }
   return entries[entries.length - 1][0];
 }
 
-// True with probability p (0..1). Reads better than `rng() < p` at a call
-// site, and keeps the odds in one place.
-export function chance(rng, p) {
-  return rng() < p;
+/** True with probability p, using the given rng (defaults to Math.random). */
+export function chance(p, rng) {
+  if (rng) return rng.next() < p;
+  return Math.random() < p;
 }

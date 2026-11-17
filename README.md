@@ -1,46 +1,113 @@
-# gta6-01
+# NEON BAY
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/XIIIIXV/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/XIIIIXV/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
-[![rank](https://make.fun/badge/gta6-01/XIIIIXV/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+A neon open-world crime spree in a 3.2 km² city. Steal cars, dodge the
+cops, and run 6 story missions across Neon Bay — from a quiet return to
+town to a city-wide getaway. Built for the
+[make.fun gta6-01 bounty](https://make.fun/bounty/gta6-01).
 
-[![reward](https://make.fun/badge/gta6-01/XIIIIXV/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+## Play
 
-NEON BAY — an original open-world crime game in the spirit of GTA 6, built from scratch with plain Canvas 2D and no libraries: a living dusk city you explore on foot and by car, with traffic and pedestrians, cars to steal, a five-star wanted system with pursuing police cruisers and foot cops, six story missions for Big Sal, combat, a HUD with a live minimap, and progress that saves after every mission.
-
-## Run it
-
-```sh
-node serve.ts
+```bash
+node serve.ts --port 8080
+# open http://localhost:8080/
 ```
 
-Then open http://localhost:8080 in a desktop browser. No network request is made; the game is static files under `game/`.
+Or just open `game/index.html` in a browser (module scripts need to be
+served over HTTP for the imports to resolve — use the dev server above).
 
-## How to play
+## Controls
 
-- **WASD / arrows** — walk or drive (W accelerate, S brake/reverse, A/D steer)
-- **Shift** — run on foot
-- **E** — enter / exit a car (walk up to a parked car and steal it — the cops will notice)
-- **Mouse** — aim; **Click** — shoot the pistol; **Space** — punch
-- **Q** — switch weapon (fists / pistol), **R** — reload
-- **H** — honk the horn (in a car)
-- **P / Esc** — pause, **M** — mute
+| Key | Action |
+| --- | ------ |
+| WASD / arrows | Drive & walk |
+| E | Enter / exit car |
+| Mouse | Aim |
+| Click / Space | Shoot (pistol) |
+| R | Reload |
+| F | Switch weapon |
+| H | Horn |
+| M | Mute / unmute |
+| ENTER | Start mission / continue / play again |
 
-## The story
+## Missions (PAR targets)
 
-Jax Moreno is out after three years inside. His late brother's garage is in debt to Big Sal, the loan shark who owns half of Neon Bay. Six jobs stand between Jax and a clean slate: a getaway car, a courier run, a crew pickup gone wrong, a bank job, a war with Sal's enforcers, and one last run to the airfield with the whole Neon Bay PD on his tail.
+| # | Mission | PAR | Reward |
+| --- | ------- | --- | ------ |
+| 1 | Back in Town | 90s | $250 |
+| 2 | The Package | 150s | $400 |
+| 3 | Crew Call | 180s | $500 |
+| 4 | Bank of Neon Bay | 180s | $600 |
+| 5 | Sal's Enforcers | 240s | $800 |
+| 6 | The Long Goodbye | 150s | $1,000 |
 
-## What's in the city
+Beat a mission's PAR and the summary panel shows **★ BEAT PAR! ★**.
+Finish all six and the ending screen shows your per-mission times, total
+time, and — if you beat your previous best — **★ NEW BEST! ★**. Best
+times are kept in `localStorage` under `neonbay.bestTimes`.
 
-- A 3.2 km² road grid with buildings, parks, parking lots, and named places (Moreno Garage, the Docks, Club Mirage, the Bank of Neon Bay, the Salvatore Warehouse, the Airfield). Some storefronts carry lit neon sign strips, and half the parks have a fountain.
-- Traffic that follows the roads and brakes for jams, pedestrians who walk the sidewalks and flee gunfire
-- Wanted level 0–5 stars: stealing, shooting, and running people over raise the heat; laying low cools it down; police cruisers ram you and foot cops move in to bust you
-- Six missions with objectives, timers, a vault hold, ambushes, and a boss (Crusher). Every mission shows a tip line under its objective, and each has a PAR target time — Back in Town 1:30, The Package 2:30, Crew Call 3:00, Bank of Neon Bay 3:00, Sal's Enforcers 4:00, The Long Goodbye 2:30.
-- After every mission, a summary panel shows the mission name, your time, your best time, and the cash earned — beat the PAR and it flashes "★ BEAT PAR!". Finish all six and the ending screen adds your total run time and best total time. Best times are saved in localStorage (`neonbay.bestTimes`) and survive between sessions.
-- Pickups for health, armor, and cash, marked as dots on the live minimap; synthesized engine, siren, and gunshot audio (Web Audio, no files) plus pickup, fail, and car-horn sounds — press H in a car to honk
-- The game auto-pauses when the tab is hidden, and the page shows a loading screen (plus a message if JavaScript is off)
-- Judge winrate: 200/200 = 100% (N=200 seeds, local headless harness `tools/winrate.mjs` — every mission completed, no soft-locks)
+## The city
 
----
+- 3.2 km² neon grid: 6×6 road network, ~91 buildings (capped at ~55% of
+  each block), per-block shuffled roof palette, neon sign strips on ~25%
+  of buildings, park fountains on ~50% of parks, and the Grand Tower
+  landmark at the centre.
+- Traffic cars and pedestrians wander the streets; pedestrians wear
+  weighted shirt colours and turn at random.
+- Pickups: health at the plaza, armor at the docks (respawn every 30s).
 
-<sub>Entered on [make.fun](https://make.fun/?ref=20xfbrjv&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+## Wanted & police
+
+- 0–5 wanted stars, driven by heat (stealing a car adds heat; the
+  getaway car in a delivery is free to take and adds none).
+- Police cruisers ram (damage 2) and back off for 3.0s after a hit;
+  on-foot cops can arrest you at 3+ stars. All police despawn when your
+  wanted level falls to 0.
+- Wall scrapes damage 2, car–car collisions damage 4.
+
+## Combat
+
+- Pistol: damage 40, 12-round mag, 1.0s reload. Enemy bullets deal 6.
+- Clearing a kill step grants +50 armor; completing a mission heals you
+  to full health.
+
+## Driving
+
+Cars steer with a 0.4 floor and a 3.2 turn rate, and bleed speed in hard
+turns so U-turns stay inside the 96-wide roads instead of swinging into
+a block. Top speed 460, reverse 160.
+
+## Verification
+
+```bash
+node tools/simtest.mjs   # 17 headless simulation tests
+node tools/playtest.mjs  # headless Chromium playtest (0 console errors)
+node tools/winrate.mjs   # judge winrate, N=200 seeds
+node tools/shots.mjs     # regenerate the 4 screenshots
+```
+
+Measured judge winrate (N=200, seeds 1–200): **200/200 = 100.0%**.
+
+## Files
+
+- `game/index.html` — entry page (loading veil, noscript, meta).
+- `game/src/` — the game: `random.js` (seeded RNG), `config.js`
+  (tuning + places), `city.js` (procedural city), `world.js`
+  (simulation), `missions.js` (6 story missions), `render.js`
+  (canvas renderer + HUD + summary), `input.js` (keyboard/mouse),
+  `audio.js` (WebAudio synth SFX), `main.js` (loop + camera),
+  `shots.js` (screenshot scene setup).
+- `main.ts` — repo entrypoint (guards + build summary).
+- `serve.ts` — dev server (access log, HEAD support, `--quiet`).
+- `tools/` — verification harness (`simtest.mjs`, `playtest.mjs`,
+  `winrate.mjs`, `shots.mjs`) and `shots-report.json`.
+- `screenshots/` — 4 staged captures (`1-start`, `2-play`, `3-chase`,
+  `4-mission`), each under 256 KiB.
+- `vendor/makefun-game.ts` — kit file (do not modify).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

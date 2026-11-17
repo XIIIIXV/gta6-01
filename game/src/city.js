@@ -1,96 +1,174 @@
-// City generation for NEON BAY: a road grid, buildings per block, parks and lots.
-// Deterministic from a seed; buildings are AABBs the physics code collides against.
-import { ROAD_CENTERS, ROAD_PITCH, ROAD_WIDTH, WORLD_SIZE } from './config.js';
-import { mulberry32, pick, range, rangeInt, shuffle } from './random.js';
+// NEON BAY — city layout: roads, buildings, parks, landmarks (v3 rebuild).
+// The city is a 300-unit road grid over an 1800x1800 map. Buildings live
+// inside the blocks between roads (never on a road), with a margin from the
+// kerb so a car turning a corner does not wedge into a wall.
 
-const ROOFS = ['#4a3f6b', '#5b4a68', '#37415c', '#6b4a3f', '#3f5c4a', '#5c3f4a', '#41566b', '#6b5c3f'];
-const WALLS = ['#7a6a8a', '#8a7a6a', '#6a7a8a', '#8a6a7a', '#6a8a7a', '#7a7a6a'];
-// Neon sign colors for the occasional lit-up storefront roof.
-const NEON = ['#ff2d78', '#00e5ff', '#ffd60a', '#7cff4d', '#ff8a00', '#b26bff'];
+import { CITY } from './config.js';
+import { shuffle } from './random.js';
 
-export function generateCity(seed) {
-  const rng = mulberry32(seed);
-  // A second stream, seeded from the same seed, for decoration only (roof
-  // palettes, neon signs, fountains). The layout stream above must stay
-  // byte-identical to the original — every draw it makes places a building,
-  // a park, or a lot, and shifting it would move the whole city (and the
-  // autopilot routes the winrate was tuned on). Decoration reads from `deco`
-  // and never from `rng`, so the layout cannot move.
-  const deco = mulberry32((seed ^ 0x9e3779b9) >>> 0);
-  const buildings = [];
-  const parks = [];
-  const lots = [];
-  const halfRoad = ROAD_WIDTH / 2;
-  // Blocks sit between road centers: block (i, j) spans between centers i and i+1.
-  for (let i = 0; i < ROAD_CENTERS.length - 1; i += 1) {
-    for (let j = 0; j < ROAD_CENTERS.length - 1; j += 1) {
-      const x0 = ROAD_CENTERS[i] + halfRoad + 26;
-      const x1 = ROAD_CENTERS[i + 1] - halfRoad - 26;
-      const y0 = ROAD_CENTERS[j] + halfRoad + 26;
-      const y1 = ROAD_CENTERS[j + 1] - halfRoad - 26;
-      const roll = rng();
-      if (roll < 0.14) {
-        // Half the parks get a fountain — a blue disc the renderer draws in
-        // the middle of the green. Drawn from the decoration stream, so the
-        // park's own trees/seed (layout stream) never move.
-        const fountain = deco() < 0.5
-          ? { x: x0 + (x1 - x0) * (0.3 + deco() * 0.4), y: y0 + (y1 - y0) * (0.3 + deco() * 0.4), r: 22 + deco() * 10 }
-          : null;
-        parks.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0, trees: rangeInt(rng, 6, 12), seed: rangeInt(rng, 1, 99999), fountain });
-        continue;
-      }
-      if (roll < 0.22) {
-        lots.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
-        continue;
-      }
-      // 1-3 buildings per block, laid out in a row or a 2x2 grid. Buildings
-      // are capped at ~55% of their cell so a clear lane (55-70px) always
-      // runs through every block: a car pushed off the road must always be
-      // able to drive back out, or a single wide building turns the block
-      // into a dead-end slot the car can never escape.
-      const count = rng() < 0.5 ? 1 : rng() < 0.7 ? 2 : 4;
-      const bw = (x1 - x0) / (count === 4 ? 2 : count) - 14;
-      const bh = (y1 - y0) / (count === 4 ? 2 : 1) - 14;
-      // Shuffle the roof palette per block so neighbours never share a roof
-      // colour (building k takes roofs[k]), and give about one building in
-      // four a neon sign strip. Both come from the decoration stream; the
-      // layout stream still spends exactly one draw on the roof, as the
-      // original pick(rng, ROOFS) did, so the buildings never move.
-      const roofs = shuffle(deco, ROOFS);
-      for (let k = 0; k < count; k += 1) {
-        const col = count === 4 ? k % 2 : k;
-        const row = count === 4 ? Math.floor(k / 2) : 0;
-        const w = range(rng, bw * 0.45, bw * 0.55);
-        const h = range(rng, bh * 0.45, bh * 0.55);
-        const x = x0 + col * ((x1 - x0) / (count === 4 ? 2 : count)) + 7 + (bw - w) / 2;
-        const y = y0 + row * ((y1 - y0) / (count === 4 ? 2 : 1)) + 7 + (bh - h) / 2;
-        rng(); // layout-stream draw the original roof pick spent; keeps every later building where it was
-        buildings.push({
-          x, y, w, h,
-          roof: roofs[k % roofs.length],
-          wall: pick(rng, WALLS),
-          height: rangeInt(rng, 1, 3),
-          seed: rangeInt(rng, 1, 99999),
-          neon: deco() < 0.25 ? pick(deco, NEON) : null,
-        });
-      }
-    }
-  }
-  return { buildings, parks, lots, size: WORLD_SIZE, pitch: ROAD_PITCH };
+const { ROAD_SPACING, ROAD_OFFSET, ROAD_WIDTH } = CITY;
+
+/** The centreline coordinate of the road nearest to v (roads at 150 + 300k). */
+export function nearestRoadCenter(v) {
+  const c = ROAD_OFFSET + ROAD_SPACING * Math.round((v - ROAD_OFFSET) / ROAD_SPACING);
+  return Math.max(ROAD_OFFSET, Math.min(CITY.SIZE - ROAD_OFFSET, c));
 }
 
-// Is a point on a road (including the sidewalk strip)?
-export function onRoad(x, y) {
-  for (const c of ROAD_CENTERS) {
-    if (Math.abs(x - c) <= ROAD_WIDTH / 2 + 24) return true;
-    if (Math.abs(y - c) <= ROAD_WIDTH / 2 + 24) return true;
+/** Whether a point is on a road surface (within half the road width). */
+export function isOnRoad(x, y) {
+  const dx = Math.abs(x - nearestRoadCenter(x));
+  const dy = Math.abs(y - nearestRoadCenter(y));
+  return dx <= ROAD_WIDTH / 2 || dy <= ROAD_WIDTH / 2;
+}
+
+// Roof colours, shuffled per block so no two neighbouring blocks match.
+const ROOF_PALETTE = ['#2b2d5c', '#3a2b4f', '#24384a', '#4a2b3d', '#2e4a3a', '#413a2b'];
+
+/**
+ * Build the city from a seeded rng. Returns { buildings, fountains, parks }.
+ * buildings: {x, y, w, h, roof, neon} (x,y = top-left). ~91 buildings, total
+ * area capped at ~55% of each block. A few blocks are parks; ~50% of parks
+ * get a fountain. The Grand Tower sits in its own block at the centre.
+ */
+export function createCity(rng) {
+  const buildings = [];
+  const fountains = [];
+  const parks = [];
+  const halfRoad = ROAD_WIDTH / 2;
+  const margin = 14; // kerb margin: buildings never touch the road.
+
+  // Interior blocks: between road i and road i+1, for i in 0..4 (5x5 = 25).
+  const parkBlocks = new Set();
+  while (parkBlocks.size < 6) parkBlocks.add(rng.int(25));
+
+  for (let bi = 0; bi < 25; bi += 1) {
+    const bx = bi % 5;
+    const by = Math.floor(bi / 5);
+    const x0 = ROAD_OFFSET + ROAD_SPACING * bx + halfRoad + margin;
+    const x1 = ROAD_OFFSET + ROAD_SPACING * (bx + 1) - halfRoad - margin;
+    const y0 = ROAD_OFFSET + ROAD_SPACING * by + halfRoad + margin;
+    const y1 = ROAD_OFFSET + ROAD_SPACING * (by + 1) - halfRoad - margin;
+    const blockW = x1 - x0;
+    const blockH = y1 - y0;
+    const blockArea = blockW * blockH;
+
+    if (parkBlocks.has(bi)) {
+      parks.push({ x: x0, y: y0, w: blockW, h: blockH });
+      // ~50% of parks get a fountain.
+      if (rng.next() < 0.5) {
+        fountains.push({
+          x: x0 + blockW / 2,
+          y: y0 + blockH / 2,
+          r: 22 + rng.next() * 10,
+        });
+      }
+      continue;
+    }
+
+    // Per-block shuffled roof palette (decoration RNG on its own stream so
+    // the layout stays stable).
+    const roofs = shuffle(ROOF_PALETTE, rng);
+    const count = 3 + rng.int(2); // 3-4 buildings per block.
+    let usedArea = 0;
+    let placed = 0;
+    let guard = 0;
+    while (placed < count && guard < 40) {
+      guard += 1;
+      const w = 42 + rng.next() * 48;
+      const h = 34 + rng.next() * 40;
+      if (usedArea + w * h > CITY.BUILDING_FILL * blockArea) continue;
+      const x = x0 + rng.next() * Math.max(1, blockW - w);
+      const y = y0 + rng.next() * Math.max(1, blockH - h);
+      // Keep buildings apart (no overlap).
+      let overlaps = false;
+      for (const b of buildings) {
+        if (b.x < x + w + 10 && b.x + b.w + 10 > x && b.y < y + h + 10 && b.y + b.h + 10 > y) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) continue;
+      buildings.push({
+        x, y, w, h,
+        roof: roofs[placed % roofs.length],
+        // Neon sign strips on ~25% of buildings.
+        neon: rng.next() < 0.25,
+      });
+      usedArea += w * h;
+      placed += 1;
+    }
+  }
+
+  // Grand Tower landmark: a tall block in the centre block (1200, 1200).
+  buildings.push({
+    x: 1200 - 60, y: 1200 - 60, w: 120, h: 120,
+    roof: '#1a1440', neon: true, tower: true,
+  });
+
+  return { buildings, fountains, parks };
+}
+
+/**
+ * Circle-vs-building overlap: given a circle (x, y, r) and a building rect,
+ * return the smallest push-out {x, y} that clears it, or null if no overlap.
+ */
+export function pushOutOfBuilding(b, x, y, r) {
+  const cx = Math.max(b.x, Math.min(x, b.x + b.w));
+  const cy = Math.max(b.y, Math.min(y, b.y + b.h));
+  const dx = x - cx;
+  const dy = y - cy;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= r * r) return null;
+  if (d2 === 0) {
+    // Centre inside the building: push out along the smallest axis.
+    const left = x - b.x;
+    const right = b.x + b.w - x;
+    const top = y - b.y;
+    const bottom = b.y + b.h - y;
+    const m = Math.min(left, right, top, bottom);
+    if (m === left) return { x: b.x - r, y };
+    if (m === right) return { x: b.x + b.w + r, y };
+    if (m === top) return { x, y: b.y - r };
+    return { x, y: b.y + b.h + r };
+  }
+  const d = Math.sqrt(d2);
+  const push = (r - d) / d;
+  return { x: x + dx * push, y: y + dy * push };
+}
+
+/** Line-of-sight test: true when no building blocks the segment. */
+export function segmentBlocked(buildings, x1, y1, x2, y2) {
+  for (const b of buildings) {
+    if (segmentHitsRect(x1, y1, x2, y2, b)) return true;
   }
   return false;
 }
 
-// Nearest road center on one axis.
-export function nearestRoadCenter(v) {
-  let best = ROAD_CENTERS[0];
-  for (const c of ROAD_CENTERS) if (Math.abs(c - v) < Math.abs(best - v)) best = c;
-  return best;
+function segmentHitsRect(x1, y1, x2, y2, b) {
+  // Slab test for an axis-aligned rectangle.
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  let tmin = 0;
+  let tmax = 1;
+  if (Math.abs(dx) < 1e-9) {
+    if (x1 < b.x || x1 > b.x + b.w) return false;
+  } else {
+    let t1 = (b.x - x1) / dx;
+    let t2 = (b.x + b.w - x1) / dx;
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  if (Math.abs(dy) < 1e-9) {
+    if (y1 < b.y || y1 > b.y + b.h) return false;
+  } else {
+    let t1 = (b.y - y1) / dy;
+    let t2 = (b.y + b.h - y1) / dy;
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  return true;
 }

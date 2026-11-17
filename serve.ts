@@ -1,83 +1,87 @@
-// A tiny static server for game/ (Node 22, standard library only), so the entry can be
-// played locally without a build step: `node serve.ts` serves game/ on
-// http://localhost:8080. It sends the MIME types a browser game needs, refuses any path
-// outside game/, and otherwise does nothing clever: a development convenience, not a web
-// server for the internet.
-import { createReadStream, statSync } from 'node:fs';
+// serve.ts — NEON BAY dev server.
+// Serves the game/ directory (game/index.html at /) with an access log,
+// HEAD support, and a --quiet flag.
+// Run with: node serve.ts [--port 8080] [--quiet]
+// Node 24 runs this .ts file directly (type stripping).
+
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { join, resolve, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
-const args = process.argv.slice(2);
-const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
-// --quiet silences the per-request access log (handy when the screenshot tool
-// hammers the server and the log drowns the real output).
-const quiet = args.includes('--quiet');
+// Document root is game/ (so / resolves to game/index.html and the
+// relative ./src/main.js in the page resolves to game/src/main.js).
+const ROOT = resolve(join(fileURLToPath(import.meta.url), '..', 'game'));
 
-const MIME: Record<string, string> = {
+const args = process.argv.slice(2);
+let port = 8080;
+let quiet = false;
+for (let i = 0; i < args.length; i += 1) {
+  if (args[i] === '--port' && args[i + 1]) port = Number(args[i + 1]);
+  if (args[i] === '--quiet') quiet = true;
+}
+
+const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
+  '.ts': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.txt': 'text/plain; charset=utf-8',
 };
 
-createServer((request, response) => {
-  const url = new URL(request.url ?? '/', 'http://localhost');
-  let pathname: string;
-  try {
-    pathname = decodeURIComponent(url.pathname);
-  } catch {
-    response.writeHead(400).end('bad request');
-    if (!quiet) console.log(`${request.method} ${url.pathname} -> 400`);
+function logLine(req, status, size) {
+  if (quiet) return;
+  const ts = new Date().toISOString();
+  console.log(`[${ts}] ${req.method} ${req.url} -> ${status} (${size} B)`);
+}
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', `http://localhost:${port}`);
+  // Favicon: a tiny inline neon "N" so browsers don't 404.
+  if (url.pathname === '/favicon.ico' || url.pathname === '/favicon.svg') {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#070b18"/><text x="16" y="23" font-size="20" font-family="sans-serif" font-weight="bold" fill="#ff2d95" text-anchor="middle">N</text></svg>';
+    res.writeHead(200, { 'content-type': 'image/svg+xml', 'content-length': Buffer.byteLength(svg) });
+    res.end(svg);
+    logLine(req, 200, Buffer.byteLength(svg));
     return;
   }
-  if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
-    response.writeHead(403).end('forbidden');
-    if (!quiet) console.log(`${request.method} ${url.pathname} -> 403`);
+  let rel = decodeURIComponent(url.pathname);
+  if (rel === '/') rel = '/index.html';
+  // Never serve outside the repo root.
+  const filePath = resolve(join(ROOT, normalize(rel).replace(/^(\.\.[\/\\])+/, '')));
+  if (!filePath.startsWith(ROOT)) {
+    res.writeHead(403, { 'content-type': 'text/plain' });
+    res.end('Forbidden');
+    logLine(req, 403, 9);
     return;
   }
-  let size: number;
-  try {
-    const stats = statSync(file);
-    if (!stats.isFile()) throw new Error('not a file');
-    size = stats.size;
-  } catch {
-    response.writeHead(404).end('not found');
-    if (!quiet) console.log(`${request.method} ${url.pathname} -> 404`);
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end('Not found');
+    logLine(req, 404, 9);
     return;
   }
-  response.writeHead(200, {
-    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': size,
-    'cache-control': 'no-store',
-  });
-  // HEAD asks for the headers only (a probe, not a download): send the headers
-  // and no body, instead of streaming the whole file at a client that will
-  // throw it away.
-  if (request.method === 'HEAD') {
-    response.end();
-  } else {
-    createReadStream(file).pipe(response);
+  const data = readFileSync(filePath);
+  const type = MIME[extname(filePath)] ?? 'application/octet-stream';
+  const headers = { 'content-type': type, 'content-length': data.length };
+  // HEAD: headers only, no body.
+  if (req.method === 'HEAD') {
+    res.writeHead(200, headers);
+    res.end();
+    logLine(req, 200, data.length);
+    return;
   }
-  if (!quiet) console.log(`${request.method} ${url.pathname} -> 200 ${size}B`);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`game/ is on http://localhost:${port}`);
+  res.writeHead(200, headers);
+  res.end(data);
+  logLine(req, 200, data.length);
+});
+
+server.listen(port, () => {
+  console.log(`[neon-bay] serving ${ROOT} on http://localhost:${port}/`);
 });

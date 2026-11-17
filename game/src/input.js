@@ -1,61 +1,107 @@
-// Keyboard + mouse input for NEON BAY. Tracks held keys, edge presses, and the
-// mouse position in canvas pixels (converted to world aim by the game loop).
-export function createInput(canvas) {
-  const keys = new Set();
-  const pressed = new Set();
-  let mouseX = 0;
-  let mouseY = 0;
-  let mouseDown = false;
-  let mouseClicked = false;
+// NEON BAY — keyboard + mouse input (v3 rebuild).
+// Tracks keys and the mouse, and produces the input object stepWorld takes:
+//   { move:{x,y,active}, run, enterPressed, punchPressed, shootHeld,
+//     reloadPressed, switchPressed, hornPressed, aim:{x,y} }
+// Edge-triggered actions (enter, punch, reload, switch, horn) are true for
+// exactly one poll, then cleared. Aim is in world coordinates (the caller
+// supplies a screen->world mapping, since the camera lives in main.js).
 
-  function codeOf(e) {
-    return e.code;
-  }
+const MOVE_KEYS = {
+  KeyW: [0, -1], ArrowUp: [0, -1],
+  KeyS: [0, 1], ArrowDown: [0, 1],
+  KeyA: [-1, 0], ArrowLeft: [-1, 0],
+  KeyD: [1, 0], ArrowRight: [1, 0],
+};
 
-  window.addEventListener('keydown', (e) => {
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-    if (!e.repeat) pressed.add(e.code);
-    keys.add(e.code);
-  });
-  window.addEventListener('keyup', (e) => keys.delete(e.code));
-  window.addEventListener('blur', () => keys.clear());
-
-  canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = e.clientX - rect.left;
-    mouseY = e.clientY - rect.top;
-  });
-  canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0) {
-      mouseDown = true;
-      mouseClicked = true;
-    }
-  });
-  window.addEventListener('mouseup', (e) => {
-    if (e.button === 0) mouseDown = false;
-  });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
+/** Fresh input state. */
+export function createInput() {
   return {
-    // Held keys.
-    down(...codes) { return codes.some((c) => keys.has(c)); },
-    // True once, on the frame the key went down.
-    wasPressed(...codes) { return codes.some((c) => pressed.has(c)); },
-    endFrame() { pressed.clear(); mouseClicked = false; },
-    get mouse() { return { x: mouseX, y: mouseY, down: mouseDown, clicked: mouseClicked }; },
-    get moveVector() {
-      let x = 0;
-      let y = 0;
-      if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1;
-      if (keys.has('KeyD') || keys.has('ArrowRight')) x += 1;
-      if (keys.has('KeyW') || keys.has('ArrowUp')) y -= 1;
-      if (keys.has('KeyS') || keys.has('ArrowDown')) y += 1;
-      const len = Math.hypot(x, y) || 1;
-      return { x: x / len, y: y / len, active: x !== 0 || y !== 0 };
-    },
-    get run() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
-    // True once, on the frame the horn key went down (sound only — the horn
-    // never moves a ped or a car, so it cannot change a chase).
-    get hornPressed() { return pressed.has('KeyH'); },
+    keys: new Set(),
+    mouseX: 0,
+    mouseY: 0,
+    mouseDown: false,
+    edge: { enter: false, punch: false, reload: false, switch: false, horn: false },
   };
+}
+
+/** Attach DOM listeners. Call once from main.js. */
+export function attachInput(state, element) {
+  const target = element || (typeof window !== 'undefined' ? window : null);
+  if (!target || !target.addEventListener) return;
+  target.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    state.keys.add(e.code);
+    if (e.code === 'KeyE') state.edge.enter = true;
+    if (e.code === 'KeyF' || e.code === 'Space') state.edge.punch = true;
+    if (e.code === 'KeyR') state.edge.reload = true;
+    if (e.code === 'KeyQ') state.edge.switch = true;
+    if (e.code === 'KeyH') state.edge.horn = true;
+    // Keep the page from scrolling on game keys.
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  });
+  target.addEventListener('keyup', (e) => {
+    state.keys.delete(e.code);
+  });
+  target.addEventListener('blur', () => {
+    state.keys.clear();
+    state.mouseDown = false;
+  });
+  if (element && element.addEventListener) {
+    element.addEventListener('mousemove', (e) => {
+      const r = element.getBoundingClientRect();
+      state.mouseX = e.clientX - r.left;
+      state.mouseY = e.clientY - r.top;
+    });
+    element.addEventListener('mousedown', (e) => {
+      if (e.button === 0) state.mouseDown = true;
+    });
+    element.addEventListener('mouseup', (e) => {
+      if (e.button === 0) state.mouseDown = false;
+    });
+    element.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+}
+
+/** Whether a key is currently held. */
+export function isDown(state, code) {
+  return state.keys.has(code);
+}
+
+/**
+ * Build the stepWorld input for this frame and clear the edge flags.
+ * `toWorld(sx, sy)` maps screen pixels to world coordinates (for aim).
+ */
+export function pollInput(state, toWorld) {
+  let mx = 0;
+  let my = 0;
+  for (const code of state.keys) {
+    const d = MOVE_KEYS[code];
+    if (d) {
+      mx += d[0];
+      my += d[1];
+    }
+  }
+  const len = Math.hypot(mx, my);
+  if (len > 1) {
+    mx /= len;
+    my /= len;
+  }
+  const aim = toWorld ? toWorld(state.mouseX, state.mouseY) : { x: 0, y: 0 };
+  const out = {
+    move: { x: mx, y: my, active: len > 0 },
+    run: state.keys.has('ShiftLeft') || state.keys.has('ShiftRight'),
+    enterPressed: state.edge.enter,
+    punchPressed: state.edge.punch,
+    shootHeld: state.mouseDown,
+    reloadPressed: state.edge.reload,
+    switchPressed: state.edge.switch,
+    hornPressed: state.edge.horn,
+    aim,
+  };
+  state.edge.enter = false;
+  state.edge.punch = false;
+  state.edge.reload = false;
+  state.edge.switch = false;
+  state.edge.horn = false;
+  return out;
 }

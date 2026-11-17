@@ -1,22 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="NEON BAY — an original open-world crime story. Steal cars, dodge the Neon Bay PD, and work six jobs for Big Sal.">
-<meta name="theme-color" content="#10131c">
-<title>NEON BAY — an open-world crime story</title>
-<link rel="icon" href="data:,">
-<style>
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #10131c; }
-  canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
-  #loading, .loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #ffd60a; font: bold 22px sans-serif; background: #10131c; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="NEON BAY — a neon open-world crime spree. Steal cars, dodge the cops, and run 6 story missions across a 3.2 km² neon city.">
+  <meta name="theme-color" content="#070b18">
+  <title>NEON BAY — Open-World Crime Spree</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #070b18; }
+    #game { display: block; width: 100vw; height: 100vh; }
+    #loading {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      background: #070b18; color: #00e5ff; z-index: 10;
+      font-family: system-ui, -apple-system, sans-serif;
+      transition: opacity 0.4s;
+    }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #loading h1 { font-size: 42px; letter-spacing: 6px; color: #ff2d95; }
+    #loading p { font-size: 15px; color: #9beaff; }
+    #loading .bar { width: 220px; height: 4px; background: #1a2233; border-radius: 2px; overflow: hidden; }
+    #loading .bar i { display: block; height: 100%; width: 40%; background: #00e5ff; animation: slide 1.1s linear infinite; }
+    @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(320%); } }
+    #fps {
+      position: fixed; right: 10px; bottom: 34px; z-index: 5;
+      color: rgba(232, 244, 255, 0.55); font: 12px system-ui, sans-serif;
+    }
+    noscript { color: #e8f4ff; font-family: system-ui, sans-serif; padding: 24px; display: block; }
+  </style>
 </head>
 <body>
-<canvas id="game"></canvas>
-<div id="loading">Loading NEON BAY…</div>
-<noscript><div class="loading">NEON BAY needs JavaScript to play.</div></noscript>
-<script type="module" src="./src/main.js"></script>
+  <div id="loading">
+    <h1>NEON BAY</h1>
+    <div class="bar"><i></i></div>
+    <p>Loading the city…</p>
+  </div>
+  <canvas id="game"></canvas>
+  <div id="fps"></div>
+  <noscript>
+    <p>NEON BAY needs JavaScript to run. Please enable JavaScript and reload.</p>
+  </noscript>
+  <script type="module" src="./src/main.js"></script>
+  <script>
+    // Hide the loading veil once the game module has booted.
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        const el = document.getElementById('loading');
+        if (el) el.classList.add('done');
+      }, 400);
+    });
+  </script>
 </body>
 </html>
