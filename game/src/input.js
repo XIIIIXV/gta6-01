@@ -54,5 +54,8 @@ export function createInput(canvas) {
       return { x: x / len, y: y / len, active: x !== 0 || y !== 0 };
     },
     get run() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
+    // True once, on the frame the horn key went down (sound only — the horn
+    // never moves a ped or a car, so it cannot change a chase).
+    get hornPressed() { return pressed.has('KeyH'); },
   };
 }

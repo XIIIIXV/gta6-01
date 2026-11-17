@@ -10,13 +10,19 @@
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+
+// Fail loudly (instead of copying an empty directory) when the entrypoint is
+// missing — a silent empty /output would only surface at the judge.
+if (!existsSync(join(here, 'game', 'index.html'))) {
+  throw new Error(`game/index.html not found beside ${here} — nothing to hand in`);
+}
 
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
@@ -38,3 +44,27 @@ writeFileSync(
     game_path_max_bytes: 1000,
   }),
 );
+
+// A one-line summary of what was handed in, so a local run shows the same
+// shape the judge will see (file count, bytes, screenshots) at a glance.
+function walkSize(dir) {
+  let files = 0;
+  let bytes = 0;
+  for (const name of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, name.name);
+    if (name.isDirectory()) {
+      const sub = walkSize(p);
+      files += sub.files;
+      bytes += sub.bytes;
+    } else {
+      files += 1;
+      bytes += statSync(p).size;
+    }
+  }
+  return { files, bytes };
+}
+const game = walkSize(join(out, 'game'));
+const shots = existsSync(join(out, 'screenshots'))
+  ? readdirSync(join(out, 'screenshots')).map((n) => `${n} ${statSync(join(out, 'screenshots', n)).size}B`).join(', ')
+  : '(none)';
+console.log(`NEON BAY -> ${out}: game ${game.files} files, ${game.bytes} bytes; screenshots: ${shots}; dossier.json written`);

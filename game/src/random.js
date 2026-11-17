@@ -25,3 +25,35 @@ export function range(rng, min, max) {
 export function rangeInt(rng, min, max) {
   return min + Math.floor(rng() * (max - min + 1));
 }
+
+// Fisher-Yates shuffle: returns a new array in random order (the input is
+// left untouched, so a palette or list can be reshuffled per block/round).
+export function shuffle(rng, arr) {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// Pick one entry with probability proportional to its weight. Entries are
+// [value, weight] pairs; a weight of 0 never wins. Useful for variety where
+// some options should be common and others rare (ped shirts, car colors).
+export function weightedPick(rng, entries) {
+  let total = 0;
+  for (const [, w] of entries) total += Math.max(0, w);
+  if (total <= 0) return entries[0]?.[0];
+  let roll = rng() * total;
+  for (const [value, w] of entries) {
+    roll -= Math.max(0, w);
+    if (roll <= 0) return value;
+  }
+  return entries[entries.length - 1][0];
+}
+
+// True with probability p (0..1). Reads better than `rng() < p` at a call
+// site, and keeps the odds in one place.
+export function chance(rng, p) {
+  return rng() < p;
+}

@@ -16,6 +16,8 @@ export const MISSIONS = [
     id: 1,
     title: 'Back in Town',
     brief: 'Sal\'s boys are watching the garage. Get there on foot, then steal a ride and bring it to the safehouse.',
+    tip: 'Parked cars line the roads — walk up and press E.',
+    par: 90,
     reward: 200,
     steps: [
       { type: 'goto', place: 'garage', text: 'Get to Moreno Garage' },
@@ -27,6 +29,8 @@ export const MISSIONS = [
     id: 2,
     title: 'The Package',
     brief: 'A courier job for Club Mirage. Pick the package up at the docks, then deliver it to the club in 90 seconds. Don\'t wreck the car.',
+    tip: 'The delivery car is fast. Don\'t stop for anything.',
+    par: 150,
     reward: 350,
     steps: [
       { type: 'goto', place: 'docks', text: 'Pick up the package at the Docks' },
@@ -37,6 +41,8 @@ export const MISSIONS = [
     id: 3,
     title: 'Crew Call',
     brief: 'Milo, your old wheelman, is back in town. Pick him up, drive him to the meet — and the Red Vipers heard about it. Expect trouble.',
+    tip: 'Milo waits at the plaza. The Vipers bring friends.',
+    par: 180,
     reward: 500,
     steps: [
       { type: 'goto', place: 'plaza', text: 'Pick up Milo at Liberty Plaza' },
@@ -48,6 +54,8 @@ export const MISSIONS = [
     id: 4,
     title: 'Bank of Neon Bay',
     brief: 'Sal wants his money back with interest. Hit the bank, grab the cash, and lose the cops. Three stars and counting.',
+    tip: 'Stay in the circle to crack the vault, then run.',
+    par: 180,
     reward: 1500,
     steps: [
       { type: 'goto', place: 'bank', text: 'Get to the Bank of Neon Bay' },
@@ -59,6 +67,8 @@ export const MISSIONS = [
     id: 5,
     title: 'Sal\'s Enforcers',
     brief: 'Sal sent his enforcers to the warehouse to send you a message. Send one back. Take out all six — and their boss, Crusher.',
+    tip: 'Crusher soaks bullets. Use cover and keep moving.',
+    par: 240,
     reward: 1200,
     steps: [
       { type: 'goto', place: 'warehouse', text: 'Get to the Salvatore Warehouse' },
@@ -69,6 +79,8 @@ export const MISSIONS = [
     id: 6,
     title: 'The Long Goodbye',
     brief: 'One last run. The whole Neon Bay PD is on you. Reach the airfield and fly out — four stars, forty-five seconds of hell, no turning back.',
+    tip: 'Keep driving. Forty-five seconds is all it takes.',
+    par: 150,
     reward: 3000,
     steps: [
       { type: 'goto', place: 'airport', text: 'Reach the Neon Bay Airfield' },

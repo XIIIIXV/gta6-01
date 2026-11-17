@@ -1,9 +1,9 @@
 // NEON BAY world: state, physics, traffic/pedestrian/police AI, combat, the
 // wanted system, and the mission engine. Fixed-step (STEP) updates; deterministic
 // from a seed so screenshot scenes replay exactly.
-import { STEP, WORLD_SIZE, ROAD_CENTERS, ROAD_WIDTH, CAR_COLORS, PLACES } from './config.js';
+import { STEP, WORLD_SIZE, ROAD_CENTERS, ROAD_WIDTH, CAR_COLORS, PLACES, BEST_TIMES_KEY, PICKUP_RESPAWN_S } from './config.js';
 import { generateCity, nearestRoadCenter } from './city.js';
-import { mulberry32, pick, range, rangeInt } from './random.js';
+import { mulberry32, pick, range, rangeInt, weightedPick, chance } from './random.js';
 import { MISSIONS, missionPlace } from './missions.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -52,6 +52,12 @@ export function createWorld(seed = 1) {
     screen: 'title', // title | play | paused | wasted | busted | failed | complete | ending
     screenT: 0,
     over: false,
+    // Mission summary + best-time tracking (display only — never feeds back
+    // into mission timers, police, or win/lose logic).
+    runSummary: null, // { missionId, title, elapsed, best, isNewBest, reward, totalTime, bestTotal, isNewBestTotal, isFinal }
+    totalTime: 0, // seconds of completed missions in this run
+    runBegan: false,
+    runStartIndex: 0, // mission index the run started at (0 = full run)
   };
   resetWorld(world, seed);
   // Convenience methods the screenshot staging and tests use.
@@ -83,15 +89,28 @@ function makeCar(world, x, y, angle, opts = {}) {
 }
 
 function makePed(world, x, y) {
+  // The draws below stay in the original order (angle, speed, road, side,
+  // direction, skin, shirt) — the world's RNG is one shared stream, and
+  // reordering them would move every ped, car, and cop that spawns after.
+  const angle = world.rng() * TAU;
+  const speed = range(world.rng, 40, 70);
+  const road = pick(world.rng, ROAD_CENTERS);
+  const horizontal = world.rng() < 0.5;
+  const dir = world.rng() < 0.5 ? 1 : -1;
+  const color = pick(world.rng, ['#e8c39e', '#c98d64', '#8a5a3b', '#5a3b28', '#f2d5b8']);
+  // Shirt colours are weighted: reds, blues and greens are the everyday
+  // crowd, purple and white are the rare ones — the street reads as a crowd,
+  // not a uniform. One draw, same spot the old uniform pick occupied.
+  const shirt = weightedPick(world.rng, [
+    ['#e33f2f', 3], ['#2f7fe3', 3], ['#37b24d', 3], ['#f2c230', 2],
+    ['#20c997', 2], ['#8b5cf6', 1], ['#e8e8e8', 1],
+  ]);
   const ped = {
-    x, y, angle: world.rng() * TAU, speed: range(world.rng, 40, 70),
-    road: pick(world.rng, ROAD_CENTERS),
-    horizontal: world.rng() < 0.5,
-    dir: world.rng() < 0.5 ? 1 : -1,
+    x, y, angle, speed, road, horizontal, dir,
     flee: 0, fleeX: 0, fleeY: 0,
     dead: false, deadT: 0,
-    color: pick(world.rng, ['#e8c39e', '#c98d64', '#8a5a3b', '#5a3b28', '#f2d5b8']),
-    shirt: pick(world.rng, ['#e33f2f', '#2f7fe3', '#37b24d', '#f2c230', '#8b5cf6', '#e8e8e8', '#20c997']),
+    color,
+    shirt,
   };
   world.peds.push(ped);
   return ped;
@@ -116,6 +135,10 @@ export function resetWorld(world, seed) {
   world.stats = { kills: 0, carsStolen: 0, shotsFired: 0 };
   world.events = [];
   world.over = false;
+  world.runSummary = null;
+  world.totalTime = 0;
+  world.runBegan = false;
+  world.runStartIndex = 0;
   world.player = {
     x: PLACES.garage.x, y: PLACES.garage.y + 40, angle: -Math.PI / 2,
     health: 100, armor: 0, money: 0,
@@ -151,7 +174,9 @@ export function resetWorld(world, seed) {
     if (world.rng() < 0.5) makePed(world, along, road + (world.rng() < 0.5 ? 62 : -62));
     else makePed(world, road + (world.rng() < 0.5 ? 62 : -62), along);
   }
-  // Pickups: health at the hospital, cash and armor around town.
+  // Pickups: health at the hospital, cash and armor around town. Two extra
+  // spots (plaza health, docks armor) so a long drive always passes a pickup
+  // — more resources on the map only ever helps the player, never hurts.
   const pickupSpots = [
     { kind: 'health', x: PLACES.hospital.x, y: PLACES.hospital.y + 60 },
     { kind: 'health', x: 2200, y: 1000 },
@@ -161,6 +186,8 @@ export function resetWorld(world, seed) {
     { kind: 'cash', x: 600, y: 1800 },
     { kind: 'health', x: 3000, y: 2200 },
     { kind: 'armor', x: 1400, y: 600 },
+    { kind: 'health', x: PLACES.plaza.x, y: PLACES.plaza.y + 60 },
+    { kind: 'armor', x: PLACES.docks.x, y: PLACES.docks.y - 60 },
   ];
   for (const p of pickupSpots) world.pickups.push({ ...p, taken: false, respawnT: 0 });
 }
@@ -379,8 +406,14 @@ export function startMission(world, index) {
   world.mission = {
     def, stepIndex: 0, timer: 0, holdProgress: 0, kills: 0,
     failed: false, done: false, banner: def.title, bannerT: 3.5,
-    step: def.steps[0],
+    step: def.steps[0], startedAt: world.time,
   };
+  // First mission of this run: remember where the run started, so a
+  // continued run (past Mission 1) never sets a misleading best total time.
+  if (!world.runBegan) {
+    world.runBegan = true;
+    world.runStartIndex = index;
+  }
   enterStep(world);
   world.message = { text: `${def.title} — ${def.brief}`, t: 5 };
 }
@@ -450,6 +483,9 @@ function advanceStep(world) {
     world.events.push('mission_complete');
     world.message = { text: `Mission complete! +$${m.def.reward}`, t: 4 };
     saveProgress(world);
+    // Mission summary + best times (display only — no effect on the mission
+    // engine, timers, police, or win/lose logic).
+    world.runSummary = recordMissionSummary(world, m);
     m.done = true;
     m.banner = 'MISSION COMPLETE';
     m.bannerT = 3;
@@ -484,6 +520,65 @@ export function loadProgress() {
     if (!raw) return null;
     return JSON.parse(raw);
   } catch { return null; }
+}
+
+// Best times (localStorage, display only). Per-mission bests keyed by mission
+// id, plus a "total" best for a full run (started at Mission 1). A continued
+// run (started past Mission 1) still records per-mission bests, but its total
+// is never compared against the full-run best total.
+export function loadBestTimes() {
+  try {
+    const raw = localStorage.getItem(BEST_TIMES_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    return (obj && typeof obj === 'object') ? obj : {};
+  } catch { return {}; }
+}
+
+function saveBestTimes(obj) {
+  try { localStorage.setItem(BEST_TIMES_KEY, JSON.stringify(obj)); } catch { /* no storage */ }
+}
+
+function recordMissionSummary(world, m) {
+  const startedAt = (typeof m.startedAt === 'number') ? m.startedAt : world.time;
+  const elapsed = Math.max(0, world.time - startedAt);
+  world.totalTime = (world.totalTime || 0) + elapsed;
+  const bests = loadBestTimes();
+  const key = String(m.def.id);
+  let isNewBest = false;
+  if (bests[key] == null || elapsed < bests[key]) {
+    bests[key] = elapsed;
+    isNewBest = true;
+  }
+  const isFinal = m.def.id === MISSIONS.length;
+  let bestTotal = bests.total ?? null;
+  let isNewBestTotal = false;
+  if (isFinal && world.runStartIndex === 0) {
+    if (bestTotal == null || world.totalTime < bestTotal) {
+      bests.total = world.totalTime;
+      bestTotal = world.totalTime;
+      isNewBestTotal = true;
+    }
+  }
+  if (isNewBest || isNewBestTotal) saveBestTimes(bests);
+  // Par time (display only): the mission's target time, and whether this run
+  // beat it. Never feeds back into timers, police, or win/lose logic.
+  const par = m.def.par ?? null;
+  const beatPar = par != null && elapsed <= par;
+  return {
+    missionId: m.def.id,
+    title: m.def.title,
+    elapsed,
+    best: bests[key],
+    isNewBest,
+    reward: m.def.reward,
+    totalTime: world.totalTime,
+    bestTotal,
+    isNewBestTotal,
+    isFinal,
+    par,
+    beatPar,
+  };
 }
 
 // ---- main step -------------------------------------------------------------
@@ -588,12 +683,12 @@ export function stepWorld(world, dt, input) {
         ped.x += ped.dir * ped.speed * dt;
         ped.angle = ped.dir > 0 ? 0 : Math.PI;
         if (ped.x < 90 || ped.x > WORLD_SIZE - 90) ped.dir *= -1;
-        if (Math.abs(ped.x - nearestRoadCenter(ped.x)) < 60 && world.rng() < 0.002) ped.dir *= -1;
+        if (Math.abs(ped.x - nearestRoadCenter(ped.x)) < 60 && chance(world.rng, 0.002)) ped.dir *= -1;
       } else {
         ped.y += ped.dir * ped.speed * dt;
         ped.angle = ped.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
         if (ped.y < 90 || ped.y > WORLD_SIZE - 90) ped.dir *= -1;
-        if (Math.abs(ped.y - nearestRoadCenter(ped.y)) < 60 && world.rng() < 0.002) ped.dir *= -1;
+        if (Math.abs(ped.y - nearestRoadCenter(ped.y)) < 60 && chance(world.rng, 0.002)) ped.dir *= -1;
       }
     }
     resolveCircle(world, ped, 10);
@@ -725,7 +820,7 @@ export function stepWorld(world, dt, input) {
     }
     if (!p.car && dist(p.x, p.y, pk.x, pk.y) < 30) {
       pk.taken = true;
-      pk.respawnT = 30;
+      pk.respawnT = PICKUP_RESPAWN_S;
       if (pk.kind === 'health') { p.health = Math.min(100, p.health + 50); world.message = { text: 'Health +50', t: 2 }; }
       if (pk.kind === 'armor') { p.armor = Math.min(100, p.armor + 50); world.message = { text: 'Armor +50', t: 2 }; }
       if (pk.kind === 'cash') { p.money += 75; world.message = { text: 'Found $75', t: 2 }; }

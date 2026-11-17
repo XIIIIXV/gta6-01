@@ -31,6 +31,14 @@ export function toggleMute() {
 }
 export function isMuted() { return muted; }
 
+// Master volume 0..1 (clamped). The mute toggle keeps using 0.5 as its
+// "on" level; this is for any future volume control to share the same path.
+export function setMasterVolume(v) {
+  const level = Math.max(0, Math.min(1, Number(v) || 0));
+  if (master) master.gain.value = muted ? 0 : level * 0.5;
+  return level;
+}
+
 function noiseBuffer(duration) {
   const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
   const data = buf.getChannelData(0);
@@ -89,6 +97,49 @@ export function playJingle() {
   [523, 659, 784, 1047].forEach((f, i) => {
     setTimeout(() => playBlip(f), i * 110);
   });
+}
+
+// Bright two-note chime when the player grabs a pickup (health / armor /
+// cash). Distinct from the plain blip so a pickup reads as a reward, not a
+// menu click.
+export function playPickup() {
+  if (!ctx || muted) return;
+  playBlip(988);
+  setTimeout(() => playBlip(1319), 90);
+}
+
+// Low descending tone for a failed run (wasted / busted / mission failed).
+// Two notes, no jingle — the run is over.
+export function playFail() {
+  if (!ctx || muted) return;
+  playBlip(311);
+  setTimeout(() => playBlip(233), 160);
+}
+
+// Car horn: two short square-wave toots, the classic GTA "get out of the
+// way". Sound only — it never moves a ped or a car.
+export function playHonk() {
+  if (!ctx || muted) return;
+  const t = ctx.currentTime;
+  for (const [start, dur] of [[0, 0.16], [0.22, 0.16]]) {
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = 370;
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'square';
+    osc2.frequency.value = 466;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.12, t + start);
+    gain.gain.setValueAtTime(0.12, t + start + dur - 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + start + dur);
+    osc.connect(gain);
+    osc2.connect(gain);
+    gain.connect(master);
+    osc.start(t + start);
+    osc.stop(t + start + dur);
+    osc2.start(t + start);
+    osc2.stop(t + start + dur);
+  }
 }
 
 export function playCrash() {

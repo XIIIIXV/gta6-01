@@ -3,15 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="NEON BAY — an original open-world crime story. Steal cars, dodge the Neon Bay PD, and work six jobs for Big Sal.">
+<meta name="theme-color" content="#10131c">
 <title>NEON BAY — an open-world crime story</title>
 <link rel="icon" href="data:,">
 <style>
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #10131c; }
   canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+  #loading, .loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #ffd60a; font: bold 22px sans-serif; background: #10131c; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+<div id="loading">Loading NEON BAY…</div>
+<noscript><div class="loading">NEON BAY needs JavaScript to play.</div></noscript>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

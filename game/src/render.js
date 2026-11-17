@@ -1,12 +1,17 @@
 // NEON BAY renderer: top-down dusk city, entities, HUD, minimap, and screens.
 // All drawing is Canvas 2D; the game is fully playable from this one canvas.
-import { WORLD_SIZE, ROAD_CENTERS, ROAD_WIDTH, PLACES } from './config.js';
+import { WORLD_SIZE, ROAD_CENTERS, ROAD_WIDTH, PLACES, CONTROLS_HELP } from './config.js';
 import { mulberry32 } from './random.js';
 import { MISSIONS, STORY_INTRO } from './missions.js';
 import { starsForHeat } from './world.js';
 
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// Seconds as M:SS for the mission summary (display only).
+function fmtTime(s) {
+  const total = Math.max(0, Math.floor(s));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -160,6 +165,20 @@ export function createRenderer(canvas) {
         ctx.arc(park.x + rng() * park.w, park.y + rng() * park.h, 9 + rng() * 7, 0, TAU);
         ctx.fill();
       }
+      // Fountain: a still blue disc with a lighter rim, for parks that have one.
+      if (park.fountain) {
+        ctx.fillStyle = '#2b6cb0';
+        ctx.beginPath();
+        ctx.arc(park.fountain.x, park.fountain.y, park.fountain.r, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#63b3ed';
+        ctx.beginPath();
+        ctx.arc(park.fountain.x, park.fountain.y, park.fountain.r * 0.45, 0, TAU);
+        ctx.fill();
+      }
     }
     // Roads.
     ctx.fillStyle = '#33363f';
@@ -224,6 +243,13 @@ export function createRenderer(canvas) {
             ctx.fillRect(b.x + 8 + i * ((b.w - 16) / cols), b.y + 8 + j * ((b.h - 16) / rows), 7, 9);
           }
         }
+      }
+      // Neon sign strip along the roof edge, for buildings that have one.
+      if (b.neon) {
+        ctx.fillStyle = b.neon;
+        ctx.fillRect(b.x + 6, b.y + 6, Math.max(10, b.w - 12), 4);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(b.x + 6, b.y + 6, Math.max(10, b.w - 12), 1);
       }
     }
     // Place labels.
@@ -339,6 +365,11 @@ export function createRenderer(canvas) {
     }
     for (const car of world.cars) if (car.police && !car.wrecked) dot(car.x, car.y, '#4d7cff', 2.5);
     for (const car of world.cars) if (car.mission === 'deliver' && !car.wrecked) dot(car.x, car.y, '#37b24d', 3);
+    // Pickups, so the player can spot a health/armor/cash stop on the map.
+    for (const pk of world.pickups) {
+      if (pk.taken) continue;
+      dot(pk.x, pk.y, pk.kind === 'health' ? '#37b24d' : pk.kind === 'armor' ? '#74c0fc' : '#ffd60a', 2);
+    }
     const p = world.player;
     ctx.save();
     ctx.translate(x + p.x * s, y + p.y * s);
@@ -405,14 +436,17 @@ export function createRenderer(canvas) {
     ctx.font = '13px sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.fillText('E enter/exit car  •  Q weapon  •  P pause  •  M mute', vw - 18, vh - 78);
-    // Mission objective (top-left).
+    // Mission objective (top-left). The tip rides under the step text so the
+    // player sees it for the whole mission, not just in a 5-second toast.
     const m = world.mission;
     if (m && !m.done && m.step) {
       ctx.textAlign = 'left';
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       const lines = [`MISSION ${m.def.id}: ${m.def.title}`, m.step.text];
+      if (m.def.tip) lines.push(`Tip: ${m.def.tip}`);
+      const panelH = m.def.tip ? 70 : 52;
       const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 24;
-      rr(14, 14, w, 52, 8);
+      rr(14, 14, w, panelH, 8);
       ctx.fill();
       ctx.fillStyle = '#ffd60a';
       ctx.font = 'bold 14px sans-serif';
@@ -420,22 +454,28 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#fff';
       ctx.font = '13px sans-serif';
       ctx.fillText(lines[1], 26, 54);
-      // Timers / progress.
+      if (m.def.tip) {
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        ctx.font = 'italic 12px sans-serif';
+        ctx.fillText(lines[2], 26, 72);
+      }
+      // Timers / progress, just below the panel.
+      const below = 14 + panelH + 12;
       if (m.step.type === 'deliver' || m.step.type === 'survive') {
         ctx.fillStyle = m.timer < 15 ? '#ff6b6b' : '#fff';
         ctx.font = 'bold 16px sans-serif';
-        ctx.fillText(`${Math.ceil(m.timer)}s`, 26, 76);
+        ctx.fillText(`${Math.ceil(m.timer)}s`, 26, below);
       }
       if (m.step.type === 'hold') {
         ctx.fillStyle = '#37b24d';
-        ctx.fillRect(26, 66, 160 * (m.holdProgress / m.step.seconds), 8);
+        ctx.fillRect(26, below - 8, 160 * (m.holdProgress / m.step.seconds), 8);
         ctx.strokeStyle = '#fff';
-        ctx.strokeRect(26, 66, 160, 8);
+        ctx.strokeRect(26, below - 8, 160, 8);
       }
       if (m.step.type === 'kill') {
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 16px sans-serif';
-        ctx.fillText(`${m.kills}/${m.step.count} down`, 26, 76);
+        ctx.fillText(`${m.kills}/${m.step.count} down`, 26, below);
       }
     }
     // Toast message (top center, capped so it never runs off-screen or into
@@ -483,6 +523,44 @@ export function createRenderer(canvas) {
       ctx.fillRect(0, 0, vw, vh);
     }
     drawMinimap(world);
+  }
+
+  // Mission-complete summary panel (shown during the 3s breather after a
+  // mission completes, while the next one is queued). Display only.
+  function drawMissionSummary(world) {
+    const s = world.runSummary;
+    const m = world.mission;
+    if (!s || !m || !m.done) return;
+    const w = 440;
+    const h = s.isFinal ? 180 : 156;
+    const x = vw / 2 - w / 2;
+    const y = vh / 2 - 20;
+    ctx.fillStyle = 'rgba(8,10,16,0.88)';
+    rr(x, y, w, h, 12);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,214,10,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd60a';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(`MISSION ${s.missionId}: ${s.title}`, vw / 2, y + 36);
+    ctx.font = '18px sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`TIME   ${fmtTime(s.elapsed)}`, vw / 2, y + 66);
+    ctx.fillText(`BEST   ${fmtTime(s.best)}${s.isNewBest ? '   ★ NEW BEST!' : ''}`, vw / 2, y + 90);
+    // Par time: the mission's target, and whether this run beat it.
+    if (s.par != null) {
+      ctx.fillStyle = s.beatPar ? '#7ee787' : '#fff';
+      ctx.fillText(`PAR    ${fmtTime(s.par)}${s.beatPar ? '   ★ BEAT PAR!' : ''}`, vw / 2, y + 114);
+    }
+    ctx.fillStyle = '#7ee787';
+    ctx.fillText(`CASH   +$${s.reward.toLocaleString('en-US')}`, vw / 2, y + 138);
+    if (s.isFinal) {
+      ctx.fillStyle = '#7ee787';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(`ALL MISSIONS DONE — TOTAL ${fmtTime(s.totalTime)}`, vw / 2, y + 164);
+    }
   }
 
   function drawCrosshair(aim) {
@@ -547,8 +625,7 @@ export function createRenderer(canvas) {
     }
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.font = '15px sans-serif';
-    ctx.fillText('WASD drive & walk  •  E steal / enter car  •  Mouse aim, Click shoot  •  Space punch  •  Q weapon', vw / 2, 530);
-    ctx.fillText('Shift run  •  R reload  •  P pause  •  M mute  •  Progress saves after every mission', vw / 2, 556);
+    CONTROLS_HELP.forEach((line, i) => ctx.fillText(line, vw / 2, 530 + i * 26));
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
     ctx.font = '13px sans-serif';
     ctx.fillText('An original game. No Rockstar assets, names, or story. Steal cars, dodge the Neon Bay PD, work six jobs for Big Sal.', vw / 2, 610);
@@ -662,6 +739,7 @@ export function createRenderer(canvas) {
 
     if (screen === 'play') {
       drawHUD(world);
+      drawMissionSummary(world);
       if (p.weapon === 'pistol' && !p.car && opts.aim) drawCrosshair(opts.aim);
     } else if (screen === 'paused') {
       drawHUD(world);
@@ -687,11 +765,16 @@ export function createRenderer(canvas) {
         'Q — quit to the title screen',
       ], '#ff6b6b');
     } else if (screen === 'ending') {
-      overlay('THE LONG GOODBYE', 'Jax makes the airfield as the sun comes up over Neon Bay.', [
+      const s = world.runSummary;
+      const lines = [
         `Final take: $${p.money.toLocaleString('en-US')}  •  ${world.stats.kills} takedowns  •  ${world.stats.carsStolen} cars stolen`,
-        'The debt is paid. Neon Bay is behind you — for now.',
-        'ENTER — play again from Mission 1',
-      ], '#7ee787');
+      ];
+      if (s && s.isFinal) {
+        lines.push(`Total time: ${fmtTime(s.totalTime)}${s.bestTotal != null ? `  •  Best: ${fmtTime(s.bestTotal)}` : ''}${s.isNewBestTotal ? '  ★ NEW BEST!' : ''}`);
+      }
+      lines.push('The debt is paid. Neon Bay is behind you — for now.');
+      lines.push('ENTER — play again from Mission 1');
+      overlay('THE LONG GOODBYE', 'Jax makes the airfield as the sun comes up over Neon Bay.', lines, '#7ee787');
     }
   }
 

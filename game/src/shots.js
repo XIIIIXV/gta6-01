@@ -118,6 +118,7 @@ function stealNearestCar(world) {
  * Stage `world` for the named scene and return the screen to draw.
  * start: title screen over the city. play: driving through town on mission 1.
  * chase: 3-star police chase downtown. mission: the warehouse shootout, mission 5.
+ * docks: a waterfront cruise to the docks (spare scene, not a submitted shot).
  */
 export function stageShot(name, world) {
   world.reset(world.seed);
@@ -178,6 +179,18 @@ export function stageShot(name, world) {
     playSteps(world, 10, makeDriver(world, PLACES.safehouse.x, PLACES.safehouse.y));
     if (!world.player.car) stealNearestCar(world);
     playSteps(world, 3, makeDriver(world, PLACES.safehouse.x, PLACES.safehouse.y));
+    return { screen: 'play' };
+  }
+  if (name === 'docks') {
+    // Waterfront drive: steal a ride at the garage, then cruise the south road
+    // to the docks — harbor water on one side, the Grand Tower skyline behind.
+    // (Not one of the four submitted screenshots; a spare scene for the tool.)
+    startMission(world, 0);
+    playSteps(world, 2, (w) => walkInput(w, PLACES.garage.x, PLACES.garage.y));
+    stealNearestCar(world);
+    playSteps(world, 12, makeDriver(world, PLACES.docks.x, PLACES.docks.y));
+    if (!world.player.car) stealNearestCar(world);
+    playSteps(world, 3, makeDriver(world, PLACES.docks.x, PLACES.docks.y));
     return { screen: 'play' };
   }
   // start: title screen. Let the city idle a moment so peds spread out.

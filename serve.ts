@@ -13,6 +13,9 @@ const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
 const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
 const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+// --quiet silences the per-request access log (handy when the screenshot tool
+// hammers the server and the log drowns the real output).
+const quiet = args.includes('--quiet');
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -41,12 +44,14 @@ createServer((request, response) => {
     pathname = decodeURIComponent(url.pathname);
   } catch {
     response.writeHead(400).end('bad request');
+    if (!quiet) console.log(`${request.method} ${url.pathname} -> 400`);
     return;
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
   const file = resolve(join(root, normalize(pathname)));
   if (file !== root && !file.startsWith(root + sep)) {
     response.writeHead(403).end('forbidden');
+    if (!quiet) console.log(`${request.method} ${url.pathname} -> 403`);
     return;
   }
   let size: number;
@@ -56,6 +61,7 @@ createServer((request, response) => {
     size = stats.size;
   } catch {
     response.writeHead(404).end('not found');
+    if (!quiet) console.log(`${request.method} ${url.pathname} -> 404`);
     return;
   }
   response.writeHead(200, {
@@ -63,7 +69,15 @@ createServer((request, response) => {
     'content-length': size,
     'cache-control': 'no-store',
   });
-  createReadStream(file).pipe(response);
+  // HEAD asks for the headers only (a probe, not a download): send the headers
+  // and no body, instead of streaming the whole file at a client that will
+  // throw it away.
+  if (request.method === 'HEAD') {
+    response.end();
+  } else {
+    createReadStream(file).pipe(response);
+  }
+  if (!quiet) console.log(`${request.method} ${url.pathname} -> 200 ${size}B`);
 }).listen(port, '127.0.0.1', () => {
   console.log(`game/ is on http://localhost:${port}`);
 });
