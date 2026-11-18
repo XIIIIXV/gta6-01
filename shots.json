@@ -1,1 +1,1 @@
-[{"name":"1-start.jpg","query":"?shot=start&seed=1"},{"name":"2-play.jpg","query":"?shot=play&seed=1"},{"name":"3-chase.jpg","query":"?shot=chase&seed=1"},{"name":"4-mission.jpg","query":"?shot=mission&seed=1"}]
+[{"file":"1-start.jpg","name":"1-start","url":"?shot=start&seed=1"},{"file":"2-play.jpg","name":"2-play","url":"?shot=play&seed=1"},{"file":"3-chase.jpg","name":"3-chase","url":"?shot=chase&seed=1"},{"file":"4-mission.jpg","name":"4-mission","url":"?shot=mission&seed=1"}]

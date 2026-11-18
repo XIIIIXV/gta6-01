@@ -1,31 +1,37 @@
-// NEON BAY — entrypoint (erasable TypeScript, runs under `node main.ts`).
-// Guards: game/index.html must exist and game/src must hold .js files.
-// Logs a build summary: entry size, each src file size, total, serve command.
+// main.ts — NEON BAY entrypoint (v8 rebuild).
+// Run with: node main.ts
+// Guards that the game files exist, then logs a build summary.
+
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOT = new URL('.', import.meta.url).pathname;
-const INDEX = join(ROOT, 'game', 'index.html');
-const SRC = join(ROOT, 'game', 'src');
+const root = new URL('.', import.meta.url).pathname;
+const indexPath = join(root, 'game', 'index.html');
+const srcDir = join(root, 'game', 'src');
 
-function fail(msg: string): never {
-  console.error(`[neon-bay] ERROR: ${msg}`);
+if (!existsSync(indexPath)) {
+  console.error('[neon-bay] ERROR: game/index.html is missing');
+  process.exit(1);
+}
+if (!existsSync(srcDir)) {
+  console.error('[neon-bay] ERROR: game/src/ is missing');
   process.exit(1);
 }
 
-if (!existsSync(INDEX)) fail('game/index.html is missing (run from the repo root).');
-if (!existsSync(SRC)) fail('game/src/ is missing (run from the repo root).');
-const srcFiles = readdirSync(SRC).filter((f) => f.endsWith('.js')).sort();
-if (srcFiles.length === 0) fail('game/src/ holds no .js files.');
-
-const entryBytes = statSync(INDEX).size;
-let total = entryBytes;
-console.log('[neon-bay] NEON BAY — build summary');
-console.log(`[neon-bay] entry  game/index.html  ${entryBytes} bytes`);
-for (const f of srcFiles) {
-  const bytes = statSync(join(SRC, f)).size;
-  total += bytes;
-  console.log(`[neon-bay] src    game/src/${f}  ${bytes} bytes`);
+const files = readdirSync(srcDir).filter((f) => f.endsWith('.js')).sort();
+if (files.length === 0) {
+  console.error('[neon-bay] ERROR: game/src/ has no .js files');
+  process.exit(1);
 }
-console.log(`[neon-bay] total game/ entry + src: ${total} bytes`);
+
+console.log('[neon-bay] NEON BAY build summary');
+console.log('[neon-bay] entry: game/index.html (' + statSync(indexPath).size + ' bytes)');
+let total = statSync(indexPath).size;
+for (const f of files) {
+  const size = statSync(join(srcDir, f)).size;
+  total += size;
+  console.log('[neon-bay]   game/src/' + f + ' — ' + size + ' bytes');
+}
+console.log('[neon-bay] total: ' + total + ' bytes across ' + (files.length + 1) + ' files');
+console.log('[neon-bay] renderer: hand-rolled WebGL (game/src/gl.js + render.js), no external libraries');
 console.log('[neon-bay] serve: node serve.ts --port 8080  (then open http://localhost:8080/)');

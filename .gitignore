@@ -1,5 +1,5 @@
 out/
 tools/playtest-*.png
-# v5 rebuild — never commit local run artifacts
+# v8 rebuild — stale artifacts that must never be committed
 muse-usage.jsonl
 transcripts.tar.gz

@@ -1,3 +1,6 @@
+// v8 rebuild — hand-rolled WebGL 3D, verified under recording 01a1ecdf-a268-7327-86fc-175fed066bc5
+// v7 rebuild — hand-rolled WebGL 3D, verified under recording 01a1ecb3-eb52-71bd-9c6a-0331d5009a56
+// v6 rebuild — hand-rolled WebGL 3D, verified under recording 01a1ec89-0240-70cf-8f59-95c052a52266
 // v5 rebuild — Three.js 3D, verified under recording 01a1ec5a-fd3e-7487-9558-a6fe091d3690
 // v3 rebuild — verified under recording 01a1eabc
 // v4 rebuild — Three.js 3D, verified under recording 01a1ec2e-e25c-729b-9c2a-93fbc8ceda32

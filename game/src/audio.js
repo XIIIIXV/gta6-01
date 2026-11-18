@@ -1,82 +1,77 @@
-// NEON BAY — tiny WebAudio bleeps (v5 rebuild, written from spec).
-// All sounds are synthesized with oscillators; no audio assets, no network.
-// Everything is guarded: in a headless / muted context every call is a no-op.
+// audio.js — tiny WebAudio synth for NEON BAY (v8 rebuild).
+// All sounds are procedural oscillator beeps; no audio files.
 
 let ctx = null;
-let master = null;
-let volume = 0.5;
+let master = 0.5;
+let unlocked = false;
 
-/** unlockAudio(): create/resume the AudioContext on first user interaction. */
-export function unlockAudio() {
-  try {
-    if (typeof window === 'undefined' || !window.AudioContext) return;
-    if (!ctx) {
-      ctx = new window.AudioContext();
-      master = ctx.createGain();
-      master.gain.value = volume;
-      master.connect(ctx.destination);
+function ac() {
+  if (!ctx) {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+    } catch (e) {
+      return null;
     }
-    if (ctx.state === 'suspended') void ctx.resume();
-  } catch {
-    // Audio is cosmetic; never let it break the game.
   }
+  return ctx;
 }
 
-/** setMasterVolume(v): 0..1 master gain. */
+export function unlockAudio() {
+  const c = ac();
+  if (c && c.state === 'suspended') c.resume().catch(() => {});
+  unlocked = true;
+}
+
 export function setMasterVolume(v) {
-  volume = Math.max(0, Math.min(1, v));
-  if (master) master.gain.value = volume;
+  master = Math.max(0, Math.min(1, v));
 }
 
-function blip(freq, dur, type = 'sine', gain = 0.15, slideTo = null) {
-  if (!ctx || !master || ctx.state !== 'running') return;
+function beep(freq, dur, type, vol, slideTo) {
+  if (!unlocked) return;
+  const c = ac();
+  if (!c) return;
   try {
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    if (slideTo !== null) osc.frequency.exponentialRampToValueAtTime(slideTo, ctx.currentTime + dur);
-    g.gain.setValueAtTime(gain, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
-    osc.connect(g);
-    g.connect(master);
-    osc.start();
-    osc.stop(ctx.currentTime + dur + 0.02);
-  } catch {
-    // Ignore audio failures.
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(freq, c.currentTime);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, c.currentTime + dur);
+    g.gain.setValueAtTime((vol === undefined ? 0.2 : vol) * master, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
+    o.connect(g);
+    g.connect(c.destination);
+    o.start();
+    o.stop(c.currentTime + dur);
+  } catch (e) {
+    // Audio is best-effort; never break the game.
   }
 }
 
-/** playPickup(): bright two-note chime for health/armor pickups. */
 export function playPickup() {
-  blip(660, 0.09, 'sine', 0.16);
-  setTimeout(() => blip(990, 0.12, 'sine', 0.14), 70);
+  beep(660, 0.12, 'sine', 0.25, 990);
 }
 
-/** playFail(): low buzz for mission failure / wasted. */
 export function playFail() {
-  blip(160, 0.35, 'sawtooth', 0.12, 70);
+  beep(220, 0.35, 'sawtooth', 0.25, 110);
 }
 
-/** playHonk(): short car horn (two detuned squares). */
 export function playHonk() {
-  blip(370, 0.18, 'square', 0.07);
-  blip(466, 0.18, 'square', 0.06);
+  beep(370, 0.18, 'square', 0.2, 370);
+  beep(466, 0.18, 'square', 0.15, 466);
 }
 
-/** playShoot(): short noise-ish crack for the pistol. */
 export function playShoot() {
-  blip(900, 0.06, 'square', 0.09, 220);
+  beep(900, 0.07, 'square', 0.18, 220);
 }
 
-/** playMissionComplete(): rising three-note jingle. */
 export function playMissionComplete() {
-  blip(523, 0.1, 'sine', 0.16);
-  setTimeout(() => blip(659, 0.1, 'sine', 0.16), 90);
-  setTimeout(() => blip(784, 0.18, 'sine', 0.16), 180);
+  beep(523, 0.14, 'sine', 0.25);
+  setTimeout(() => beep(659, 0.14, 'sine', 0.25), 130);
+  setTimeout(() => beep(784, 0.22, 'sine', 0.25), 260);
 }
 
-/** playClick(): UI click for menus. */
 export function playClick() {
-  blip(440, 0.05, 'sine', 0.1);
+  beep(1200, 0.05, 'sine', 0.15);
 }

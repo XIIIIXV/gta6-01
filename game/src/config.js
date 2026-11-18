@@ -1,11 +1,8 @@
-// NEON BAY — frozen tuning constants (v5 rebuild, written from spec).
-// These values are the tuned set that achieves the 99%+ judge winrate.
-// Do not "improve" them without re-measuring `node tools/winrate.mjs 200 1`.
+// config.js — frozen tuned constants for NEON BAY (v8 rebuild).
+// Values copied verbatim from the v8 spec. Do not retune without re-measuring.
 
-/** Fixed simulation step (seconds). */
 export const STEP = 1 / 60;
 
-/** City geometry. */
 export const CITY = {
   SIZE: 1800,
   ROAD_SPACING: 300,
@@ -15,7 +12,6 @@ export const CITY = {
   BUILDING_FILL: 0.55,
 };
 
-/** Named places on the map (single shared objects — missionPlace returns these). */
 export const PLACES = {
   garage: { x: 150, y: 150 },
   safehouse: { x: 1650, y: 1650 },
@@ -28,10 +24,8 @@ export const PLACES = {
   tower: { x: 1200, y: 1200 },
 };
 
-/** The Grand Tower landmark at the city centre. */
 export const GRAND_TOWER = { x: 1200, y: 1200, w: 120, h: 120 };
 
-/** Driving / combat / wanted tuning. */
 export const TUNING = {
   TURN_RATE: 3.2,
   STEER_FLOOR: 0.4,
@@ -65,17 +59,14 @@ export const TUNING = {
   HOLD_RADIUS: 80,
 };
 
-/** Pickup respawn time (seconds). */
 export const PICKUP_RESPAWN_S = 30;
 
-/** Pickup spots: health at the plaza, armor at the docks. */
 export const PICKUPS = [
   { kind: 'health', place: 'plaza', amount: 50 },
   { kind: 'armor', place: 'docks', amount: 50 },
 ];
 
-/** localStorage key for per-mission / total best times. */
 export const BEST_TIMES_KEY = 'neonbay.bestTimes';
 
-/** Controls line shown on the title screen. */
-export const CONTROLS_HELP = 'WASD / Arrows — drive or walk   •   E — steal / enter car   •   Mouse — aim, Click — shoot   •   R — reload, Q — switch weapon   •   F — punch, H — horn, Shift — run   •   Enter — start, P — pause';
+export const CONTROLS_HELP =
+  'WASD / Arrows — drive or walk   •   E — steal / enter car   •   Mouse — aim, Click — shoot   •   R — reload, Q — switch weapon   •   F — punch, H — horn, Shift — run   •   Enter — start, P — pause';

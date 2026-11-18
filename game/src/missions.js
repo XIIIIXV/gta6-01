@@ -1,6 +1,5 @@
-// NEON BAY — mission definitions (v5 rebuild, written from spec).
-// Six story missions. Step types the world understands:
-// goto, steal_car, deliver, kill, hold, escape, survive.
+// missions.js — the 6 story missions of NEON BAY (v8 rebuild).
+// Frozen mission definitions from the v8 spec.
 
 import { PLACES } from './config.js';
 
@@ -12,9 +11,9 @@ export const MISSIONS = [
     reward: 250,
     tip: 'Get back on your feet: steal a car and reach the safehouse.',
     steps: [
-      { type: 'goto', place: 'garage' },
-      { type: 'steal_car' },
-      { type: 'goto', place: 'safehouse', needCar: true },
+      { type: 'goto', place: 'garage', label: 'Go to the garage' },
+      { type: 'steal_car', label: 'Steal a car' },
+      { type: 'goto', place: 'safehouse', needCar: true, label: 'Drive to the safehouse' },
     ],
   },
   {
@@ -24,8 +23,8 @@ export const MISSIONS = [
     reward: 400,
     tip: 'Pick up the package at the docks and deliver it to the club. Do not wreck the car.',
     steps: [
-      { type: 'goto', place: 'docks' },
-      { type: 'deliver', place: 'club' },
+      { type: 'goto', place: 'docks', label: 'Go to the docks' },
+      { type: 'deliver', place: 'club', label: 'Deliver the package to the club' },
     ],
   },
   {
@@ -33,11 +32,11 @@ export const MISSIONS = [
     name: 'Crew Call',
     par: 180,
     reward: 500,
-    tip: 'Meet the crew at the warehouse and clear out the 3 lookouts.',
+    tip: 'Meet the crew at the warehouse and deal with the lookouts.',
     steps: [
-      { type: 'goto', place: 'warehouse' },
-      { type: 'kill', place: 'warehouse', count: 3 },
-      { type: 'goto', place: 'safehouse', needCar: true },
+      { type: 'goto', place: 'warehouse', label: 'Go to the warehouse' },
+      { type: 'kill', place: 'warehouse', kills: 3, label: 'Take out 3 lookouts' },
+      { type: 'goto', place: 'safehouse', needCar: true, label: 'Drive to the safehouse' },
     ],
   },
   {
@@ -45,12 +44,12 @@ export const MISSIONS = [
     name: 'Bank of Neon Bay',
     par: 180,
     reward: 600,
-    tip: 'Hit the bank, hold it for 8 seconds, then lose the heat and get home.',
+    tip: 'Hit the bank, hold it, then lose the heat and get home.',
     steps: [
-      { type: 'goto', place: 'bank', needCar: true },
-      { type: 'hold', place: 'bank', holdS: 8 },
-      { type: 'escape' },
-      { type: 'goto', place: 'safehouse', needCar: true },
+      { type: 'goto', place: 'bank', needCar: true, label: 'Drive to the bank' },
+      { type: 'hold', place: 'bank', holdS: 8, label: 'Hold the bank (8s)' },
+      { type: 'escape', label: 'Lose the wanted level' },
+      { type: 'goto', place: 'safehouse', needCar: true, label: 'Drive to the safehouse' },
     ],
   },
   {
@@ -58,10 +57,10 @@ export const MISSIONS = [
     name: "Sal's Enforcers",
     par: 240,
     reward: 800,
-    tip: 'Clear the warehouse. The last one is Sal himself.',
+    tip: 'The warehouse is crawling with Sal\u2019s enforcers. Take them all down — Sal is last.',
     steps: [
-      { type: 'goto', place: 'warehouse' },
-      { type: 'kill', place: 'warehouse', count: 7, boss: true },
+      { type: 'goto', place: 'warehouse', label: 'Go to the warehouse' },
+      { type: 'kill', place: 'warehouse', kills: 7, boss: true, label: 'Take out 7 enforcers (Sal is last)' },
     ],
   },
   {
@@ -69,30 +68,24 @@ export const MISSIONS = [
     name: 'The Long Goodbye',
     par: 150,
     reward: 1000,
-    tip: 'Survive 45 seconds. Then leave Neon Bay for good.',
+    tip: 'Survive the night. 45 seconds and you are free.',
     steps: [
-      { type: 'survive', surviveS: 45 },
+      { type: 'survive', surviveS: 45, label: 'Survive 45s' },
     ],
   },
 ];
 
-/**
- * missionPlace(step): the PLACES entry a step points at (same object
- * reference every call), or null for steps with no destination
- * (steal_car, escape, survive).
- */
+// Returns the PLACES entry for a step (same object reference every call),
+// or null for steps with no destination.
 export function missionPlace(step) {
   if (!step || !step.place) return null;
-  return PLACES[step.place] ?? null;
+  return PLACES[step.place] || null;
 }
 
-/** fmtTime(s): seconds -> "M:SS.t" (e.g. 90 -> "1:30.0"). */
 export function fmtTime(s) {
-  if (s === null || s === undefined || !Number.isFinite(s)) return '--:--.-';
-  const total = Math.max(0, s);
-  const m = Math.floor(total / 60);
-  const sec = total - m * 60;
-  const whole = Math.floor(sec);
-  const tenth = Math.floor((sec - whole) * 10);
-  return `${m}:${String(whole).padStart(2, '0')}.${tenth}`;
+  if (s === null || s === undefined || !isFinite(s)) return '--:--';
+  const t = Math.max(0, Math.floor(s));
+  const m = Math.floor(t / 60);
+  const sec = t % 60;
+  return m + ':' + String(sec).padStart(2, '0');
 }

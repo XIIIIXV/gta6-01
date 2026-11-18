@@ -1,32 +1,32 @@
 [
   {
-    "name": "1-start.jpg",
+    "name": "1-start",
     "url": "http://localhost:8082/?shot=start&seed=1",
-    "size": 52517,
+    "size": 76953,
     "errors": [],
     "failed": [],
     "external": []
   },
   {
-    "name": "2-play.jpg",
+    "name": "2-play",
     "url": "http://localhost:8082/?shot=play&seed=1",
-    "size": 80186,
+    "size": 107193,
     "errors": [],
     "failed": [],
     "external": []
   },
   {
-    "name": "3-chase.jpg",
+    "name": "3-chase",
     "url": "http://localhost:8082/?shot=chase&seed=1",
-    "size": 87654,
+    "size": 99547,
     "errors": [],
     "failed": [],
     "external": []
   },
   {
-    "name": "4-mission.jpg",
+    "name": "4-mission",
     "url": "http://localhost:8082/?shot=mission&seed=1",
-    "size": 63797,
+    "size": 76295,
     "errors": [],
     "failed": [],
     "external": []

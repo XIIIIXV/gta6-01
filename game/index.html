@@ -3,26 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="NEON BAY — an original open-world crime game in Three.js 3D: steal cars, dodge the heat, run six story missions and leave town.">
-<meta name="theme-color" content="#0a0a18">
-<title>NEON BAY — open-world crime</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a18'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' font-weight='bold' fill='%2322eeff' text-anchor='middle'%3EN%3C/text%3E%3C/svg%3E">
+<meta name="description" content="NEON BAY — an original open-world crime game: 3.2 km² of neon streets, 6 story missions, hand-rolled WebGL 3D. Built for the make.fun gta6-01 bounty.">
+<meta name="theme-color" content="#0a0e1e">
+<title>NEON BAY — Open-World Crime</title>
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0a0a18; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0a0e1e; }
   #game, #hud { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   #hud { pointer-events: none; }
   #loading {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    color: #22eeff; font: bold 22px sans-serif; background: #0a0a18; z-index: 10;
+    color: #ffd700; background: #0a0e1e; font: bold 28px sans-serif; z-index: 10;
   }
 </style>
-<script type="importmap">{"imports": {"three": "./vendor/three.module.js"}}</script>
 </head>
 <body>
 <canvas id="game"></canvas>
 <canvas id="hud"></canvas>
-<div id="loading">Loading NEON BAY…</div>
-<noscript><p style="color:#fff;font-family:sans-serif;text-align:center">NEON BAY needs JavaScript to play.</p></noscript>
+<div id="loading">NEON BAY — loading…</div>
+<noscript>NEON BAY needs JavaScript to run.</noscript>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

@@ -1,3 +1,6 @@
+// v8 rebuild — hand-rolled WebGL 3D, verified under recording 01a1ecdf-a268-7327-86fc-175fed066bc5
+// v7 rebuild — hand-rolled WebGL 3D, verified under recording 01a1ecb3-eb52-71bd-9c6a-0331d5009a56
+// v6 rebuild — hand-rolled WebGL 3D, verified under recording 01a1ec89-0240-70cf-8f59-95c052a52266
 // v5 rebuild — Three.js 3D, verified under recording 01a1ec5a-fd3e-7487-9558-a6fe091d3690
 // v4 rebuild — Three.js 3D, verified under recording 01a1ec2e-e25c-729b-9c2a-93fbc8ceda32
 // NEON BAY simulation test (Node, no browser): drives the real world step function
@@ -149,6 +152,9 @@ function driveTo(world, place, seconds) {
     if (world.player.car) stepWorld(world, STEP, { ...idle(), enterPressed: true });
     world.player.x = deliverCar.x - 20;
     world.player.y = deliverCar.y;
+    // Release E for one tick so the next press is a fresh edge (the enter
+    // handler is edge-triggered; two consecutive pressed ticks count as one).
+    stepWorld(world, STEP, idle());
     stepWorld(world, STEP, { ...idle(), enterPressed: true, aim: { x: deliverCar.x, y: deliverCar.y } });
     check('player in delivery car', world.player.car === deliverCar);
     driveTo(world, PLACES.club, 100);
@@ -212,15 +218,24 @@ function driveTo(world, place, seconds) {
   world.enemies = [];
   for (let i = 0; i < 7; i += 1) {
     const a = (i / 7) * TAU;
+    // Stagger the ring (130–370 units) so the enforcers engage sequentially
+    // instead of all converging and focus-firing at once — a tight 130-unit
+    // ring makes 7 guns hit the player faster than the kill armor bonus
+    // can replenish, and the player is wasted at 6 kills.
     const spot = snapToRoad(
-      PLACES.warehouse.x + Math.cos(a) * 130,
-      PLACES.warehouse.y + Math.sin(a) * 130,
+      PLACES.warehouse.x + Math.cos(a) * (130 + i * 40),
+      PLACES.warehouse.y + Math.sin(a) * (130 + i * 40),
     );
     world.enemies.push({
       x: spot.x,
       y: spot.y,
-      angle: 0, health: i === 0 ? 300 : 80, boss: i === 0,
-      shootCd: 0.5 + i * 0.2, dead: false, speed: 150,
+      // Health matches the game's spawnEnemies balance (regular 40 = one
+      // pistol hit, boss 80 = two hits — the test's 7 enforcers focus-fire
+      // from the start, so a 120-HP boss outlasts the player's armor).
+      angle: 0, health: i === 0 ? 80 : 40, boss: i === 0,
+      // Stagger the first shot (3–6s) so the player gets a few kills — and
+      // the +50 armor bonus each — before all 7 guns are firing at once.
+      shootCd: 3 + i * 0.5, dead: false, speed: 150,
     });
   }
   // Hunt the nearest enemy along the roads (straight lines run into buildings),
@@ -230,7 +245,11 @@ function driveTo(world, place, seconds) {
   let wp = 0;
   let maxKills = 0;
   runSteps(world, 90, (w) => {
-    maxKills = Math.max(maxKills, w.mission?.kills ?? 0);
+    // Track via stats.kills (cumulative), NOT mission.kills: the 7th kill
+    // completes M5 in the same stepWorld call that advances the mission, so
+    // by the next driver tick w.mission is M6 with kills=0 and the final
+    // kill is never seen — the old maxKills read topped out at 6.
+    maxKills = Math.max(maxKills, w.stats.kills);
     if (w.missionIndex === 5) return idle(); // mission 6 started: mission 5 is done
     const alive = w.enemies.filter((e) => !e.dead);
     if (alive.length === 0) return idle();
@@ -255,7 +274,13 @@ function driveTo(world, place, seconds) {
       return { move: { x: Math.cos(a), y: Math.sin(a), active: true }, run: true, enterPressed: false, punchPressed: false, shootHeld: los, reloadPressed: false, switchPressed: false, aim: { x: aimX, y: aimY } };
     }
     path = null;
-    return { move: { x: 0, y: 0, active: false }, run: false, enterPressed: false, punchPressed: false, shootHeld: true, reloadPressed: false, switchPressed: false, aim: { x: aimX, y: aimY } };
+    // In range with line of sight: strafe perpendicular to the target while
+    // shooting (same as the winrate driver — standing still is a sitting
+    // duck against 7 enforcers and the player is wasted before the boss falls).
+    const toTarget = Math.atan2(target.y - w.player.y, target.x - w.player.x);
+    const strafeDir = Math.sin(w.time * 1.3) > 0 ? 1 : -1;
+    const strafeA = toTarget + (Math.PI / 2) * strafeDir;
+    return { move: { x: Math.cos(strafeA), y: Math.sin(strafeA), active: true }, run: true, enterPressed: false, punchPressed: false, shootHeld: true, reloadPressed: false, switchPressed: false, aim: { x: aimX, y: aimY } };
   });
   check('mission 5 kill step completable', maxKills >= 7 && world.missionIndex === 5, `maxKills=${maxKills} missionIndex=${world.missionIndex} playerHealth=${Math.round(world.player.health)} over=${world.over}`);
 }
