@@ -56,8 +56,8 @@ export function setupShot(world, name) {
     p.x = car.x;
     p.y = car.y;
     p.angle = car.angle;
-    world.heat = 70;
-    world.stars = 3;
+    world.heat = 85;
+    world.stars = 4; // Round 6: 4 stars so the police helicopter spawns.
     world.lastHeatGain = world.time;
     // Three police cruisers flanking/ahead so the chase camera sees them.
     const spots = [

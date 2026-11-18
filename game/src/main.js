@@ -7,14 +7,17 @@
 import { STEP } from './config.js';
 import { createWorld, startMission, stepWorld } from './world.js';
 import {
-  createRenderer, loadBestTime, saveBestTime, saveMissionBest,
+  createRenderer, loadBestTime, saveBestTime, saveMissionBest, saveTrialBest,
 } from './render.js';
 import { createInput, attachInput, pollInput } from './input.js';
 import {
   unlockAudio, playPickup, playFail, playHonk, playShoot,
   playMissionComplete, playClick, setMasterVolume,
+  radioNext, radioToggle, radioUpdate, playStunt,
 } from './audio.js';
 import { setupShot, shotFromUrl } from './shots.js';
+import { loadSave, saveGame, clearSave } from './save.js';
+import { MISSIONS } from './missions.js';
 
 const gameCanvas = document.getElementById('game');
 const hudCanvas = document.getElementById('hud');
@@ -35,6 +38,10 @@ const input = {
   reloadPressed: false,
   switchPressed: false,
   hornPressed: false,
+  radioPressed: false,
+  radioTogglePressed: false,
+  trialPressed: false,
+  phonePressed: false,
   aim: { x: 0, y: 0 },
 };
 
@@ -45,6 +52,7 @@ let prevMissionIndex = -1;
 let prevShotsFired = 0;
 let prevOver = false;
 let prevPickupsActive = 2;
+let prevTrialDone = false;
 let lastNow = 0;
 let acc = 0;
 let lastW = 0;
@@ -67,7 +75,27 @@ function startRun() {
   prevShotsFired = 0;
   prevOver = false;
   prevPickupsActive = 2;
+  prevTrialDone = false;
+  clearSave();
   startMission(world, 0);
+  playClick();
+}
+
+// Round 6: continue a saved run (C on the title screen).
+function continueRun() {
+  const save = loadSave();
+  if (!save || save.missionIndex >= MISSIONS.length) { startRun(); return; }
+  world = createWorld(shot.seed);
+  world.totalTime = save.totalTime || 0;
+  prevMissionDone = false;
+  prevMissionIndex = -1;
+  prevShotsFired = 0;
+  prevOver = false;
+  prevPickupsActive = 2;
+  prevTrialDone = false;
+  world.player.money = save.money || 0;
+  world.stats.kills = save.kills || 0;
+  startMission(world, save.missionIndex);
   playClick();
 }
 
@@ -81,6 +109,8 @@ window.addEventListener('keydown', (e) => {
     } else if (world.screen === 'ending') {
       startRun();
     }
+  } else if (e.code === 'KeyC' && world.screen === 'title') {
+    continueRun();
   }
 });
 window.addEventListener('pointerdown', () => unlockAudio(), { once: true });
@@ -108,6 +138,12 @@ function frame(now) {
       input.aim.y = wpt.y;
       if (world.screen === 'play' && !world.over) {
         stepWorld(world, STEP, input);
+        // Round 6: radio + phone are UI-level, handled here (the edge fields
+        // are set by this iteration's pollInput, so check them immediately).
+        if (input.radioPressed) radioNext();
+        if (input.radioTogglePressed) radioToggle();
+        if (input.phonePressed) world.phoneOpen = !world.phoneOpen;
+        if (world.stuntSound) { world.stuntSound = false; playStunt(); }
       } else if (world.screen === 'title') {
         // Title orbit: advance time so the camera drifts.
         world.time += STEP;
@@ -131,12 +167,19 @@ function frame(now) {
       world.totalTime = (world.totalTime || 0) + m.timer;
       if (world.gameComplete) saveBestTime(world.totalTime);
       renderer.refreshBest();
+      // Round 6: auto-save the next mission; clear the save on completion.
+      if (world.gameComplete) clearSave();
+      else saveGame(world);
     }
     prevMissionDone = !!(m && m.done);
     prevMissionIndex = world.missionIndex;
+    const tr = world.trial;
+    if (tr && tr.done && !prevTrialDone) saveTrialBest(tr.time);
+    prevTrialDone = !!(tr && tr.done);
     if (world.over && !prevOver) playFail();
     prevOver = world.over;
   }
+  radioUpdate();
 
   if (window.innerWidth !== lastW || window.innerHeight !== lastH) {
     lastW = window.innerWidth;

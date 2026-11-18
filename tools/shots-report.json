@@ -2,7 +2,7 @@
   {
     "name": "1-start",
     "url": "http://localhost:8082/?shot=start&seed=1",
-    "size": 76953,
+    "size": 82232,
     "errors": [],
     "failed": [],
     "external": []
@@ -10,7 +10,7 @@
   {
     "name": "2-play",
     "url": "http://localhost:8082/?shot=play&seed=1",
-    "size": 107193,
+    "size": 98512,
     "errors": [],
     "failed": [],
     "external": []
@@ -18,7 +18,7 @@
   {
     "name": "3-chase",
     "url": "http://localhost:8082/?shot=chase&seed=1",
-    "size": 99547,
+    "size": 89783,
     "errors": [],
     "failed": [],
     "external": []
@@ -26,7 +26,7 @@
   {
     "name": "4-mission",
     "url": "http://localhost:8082/?shot=mission&seed=1",
-    "size": 76295,
+    "size": 81982,
     "errors": [],
     "failed": [],
     "external": []

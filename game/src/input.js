@@ -67,6 +67,12 @@ export function pollInput(state, toWorld) {
   toWorld.reloadPressed = !!k['KeyR'];
   toWorld.switchPressed = !!k['KeyQ'];
   toWorld.hornPressed = !!k['KeyH'];
+  // Round 6: C — next radio station, V — radio on/off, T — start time trial,
+  // B — toggle the phone (NEONFEED) overlay.
+  toWorld.radioPressed = !!k['KeyC'];
+  toWorld.radioTogglePressed = !!k['KeyV'];
+  toWorld.trialPressed = !!k['KeyT'];
+  toWorld.phonePressed = !!k['KeyB'];
   toWorld.aim.x = state.mouse.x;
   toWorld.aim.y = state.mouse.y;
   // Edge-triggered keys are consumed by the caller (main.js clears them

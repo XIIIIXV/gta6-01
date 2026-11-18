@@ -5,8 +5,8 @@
 // v7 fix: wreckCar() fails a mission ONLY while mission 2's deliver step is
 // live; completeMission() clears the deliver flag.
 
-import { CITY, PLACES, TUNING, PICKUP_RESPAWN_S, PICKUPS, STEP } from './config.js';
-import { MISSIONS, missionPlace } from './missions.js';
+import { CITY, PLACES, TUNING, PICKUP_RESPAWN_S, PICKUPS, STEP, TRIAL_ROUTE, FEED_HANDLES } from './config.js';
+import { MISSIONS, missionPlace, fmtTime } from './missions.js';
 import { makeRng } from './random.js';
 import { nearestRoadCenter, isOnRoad, createCity, pushOutOfBuilding, segmentBlocked } from './city.js';
 
@@ -53,7 +53,23 @@ function makeCar(x, y, angle, color, traffic) {
     police: false, traffic: !!traffic, mission: false,
     color, backoffT: 0, stuckT: 0, lastX: x, lastY: y,
     hitCd: 0, scrapeCd: 0, target: null,
+    // Round 6: z is the visual jump height (stunt jumps), airT the remaining
+    // air time; swat marks a SWAT van (6 stars).
+    z: 0, airT: 0, airT0: 0, airPeak: 0, swat: false,
   };
+}
+
+// NEONFEED — the GTA 6-style social feed. Newest first, capped at 6 posts.
+export function postFeed(world, text) {
+  const author = FEED_HANDLES[Math.floor(world.rng() * FEED_HANDLES.length)];
+  world.feed.unshift({
+    author,
+    text,
+    t: world.time,
+    likes: 3 + Math.floor(world.rng() * 200),
+  });
+  if (world.feed.length > 6) world.feed.length = 6;
+  world.feedFlash = 3;
 }
 
 export function createWorld(seed) {
@@ -87,6 +103,16 @@ export function createWorld(seed) {
     muzzleT: 0,
     hornT: 0,
     pickups: [],
+    // Round 6: police helicopter units, NEONFEED posts, time-trial state,
+    // hiding timer, previous wanted level (for feed posts), stunt flash.
+    helis: [],
+    feed: [],
+    feedFlash: 0,
+    trial: null,
+    hiddenT: 0,
+    _prevStars: 0,
+    stuntFlash: null,
+    phoneOpen: false,
     player: {
       // The player starts at their garage (mission 1's first stop): the
       // opening goto completes on arrival and the garage car is right there.
@@ -99,7 +125,9 @@ export function createWorld(seed) {
     _prevPunch: false,
     _prevReload: false,
     _prevSwitch: false,
+    _prevTrial: false,
     _copSpawnT: 0,
+    _swatSpawnT: 0,
     _bustedT: 0,
   };
 
@@ -280,6 +308,7 @@ export function completeMission(world) {
   world.player.money += m.def.reward;
   world.player.health = 100;
   world.missionCooldown = TUNING.MISSION_COOLDOWN_S;
+  postFeed(world, m.def.name + ' — done. Whoever pulled that off is a legend.');
   if (world.missionIndex >= MISSIONS.length - 1) {
     world.gameComplete = true;
     world.screen = 'ending';
@@ -309,7 +338,7 @@ export function wreckCar(world, car) {
 }
 
 function addHeat(world, n) {
-  world.heat = Math.min(100, world.heat + n);
+  world.heat = Math.min(TUNING.HEAT_CAP, world.heat + n);
   world.lastHeatGain = world.time;
 }
 
@@ -449,6 +478,31 @@ function updateCarPlayer(world, dt, move, input) {
   if (input.hornPressed) world.hornT = 0.2;
   if (throttle < -0.5 && Math.abs(car.speed) > 200 && world.rng() < 0.25) {
     spawnPuff(world, car.x - Math.cos(car.angle) * 26, car.y - Math.sin(car.angle) * 26);
+  }
+  // Stunt jumps (round 6): a fast car hitting a ramp goes airborne. The z
+  // arc is visual only — ground movement and steering are untouched, so the
+  // autopilot (and the winrate) never notice a jump except for the cash.
+  if (car.airT > 0) {
+    car.airT -= dt;
+    const u = 1 - Math.max(0, car.airT) / car.airT0;
+    car.z = 4 * car.airPeak * u * (1 - u);
+    if (car.airT <= 0) {
+      car.z = 0;
+      const reward = TUNING.STUNT_REWARD_BASE + Math.round(car.airT0 * TUNING.STUNT_REWARD_PER_S);
+      world.player.money += reward;
+      world.stuntFlash = { text: 'STUNT +$' + reward, t: 2 };
+      world.stuntSound = true;
+      postFeed(world, 'Did anyone see that jump?! INSANE air over the ramp.');
+    }
+  } else if (Math.abs(car.speed) > TUNING.STUNT_MIN_SPEED) {
+    for (const ramp of world.city.ramps) {
+      if (Math.hypot(car.x - ramp.x, car.y - ramp.y) < 34) {
+        car.airT = TUNING.STUNT_AIR_S;
+        car.airT0 = TUNING.STUNT_AIR_S;
+        car.airPeak = 40 + Math.abs(car.speed) * 0.05;
+        break;
+      }
+    }
   }
 }
 
@@ -598,6 +652,116 @@ function spawnCop(world) {
   world.cops.push(cop);
 }
 
+// SWAT van (round 6): a black van with a white stripe, tougher and faster
+// than a cruiser, same ram damage. Joins the cops array so the normal
+// police steering/ram/busted logic drives it.
+function spawnSwat(world) {
+  const p = world.player;
+  const a = world.rng() * Math.PI * 2;
+  const d = 350 + world.rng() * 150;
+  const x = clamp(p.x + Math.cos(a) * d, 60, CITY.SIZE - 60);
+  const y = clamp(p.y + Math.sin(a) * d, 60, CITY.SIZE - 60);
+  const s = snapToRoad(x, y);
+  const van = makeCar(s.x, s.y, Math.atan2(p.y - s.y, p.x - s.x), '#11131a', false);
+  van.police = true;
+  van.swat = true;
+  van.health = TUNING.SWAT_HEALTH;
+  van.speed = 250;
+  world.cars.push(van);
+  world.cops.push(van);
+  postFeed(world, 'SWAT is rolling in, this is crazy.');
+}
+
+// Whether any cop has line of sight on the player, or a helicopter is
+// overhead (it always sees from above). Used for the hiding mechanic.
+function isSpotted(world) {
+  const p = world.player;
+  for (const h of world.helis) {
+    if (Math.hypot(p.x - h.x, p.y - h.y) < TUNING.HELI_LOSE_RANGE) return true;
+  }
+  for (const cop of world.cops) {
+    if (cop.wrecked) continue;
+    const d = Math.hypot(p.x - cop.x, p.y - cop.y);
+    if (d < TUNING.COP_LOS_RANGE && losClear(world, cop.x, cop.y, p.x, p.y)) return true;
+  }
+  return false;
+}
+
+// Police helicopter (round 6, 4+ stars). Flies above the player with a
+// searchlight, slower than the hero car's top speed so it can be outrun.
+// It never damages the player — it only keeps the player "spotted", so the
+// hiding fast-decay does not apply while it is overhead. If the player
+// outruns it past HELI_LOSE_RANGE for HELI_LOSE_S, it gives up and leaves.
+function updateHelis(world, dt) {
+  if (world.stars >= TUNING.HELI_SPAWN_STARS && world.helis.length === 0) {
+    const p = world.player;
+    world.helis.push({
+      x: p.x - 200, y: p.y - 200, z: TUNING.HELI_HEIGHT,
+      angle: 0, rotor: 0, lostT: 0,
+    });
+    postFeed(world, 'There is a police chopper circling the city.');
+  }
+  if (world.stars === 0 && world.helis.length > 0) world.helis = [];
+  const p = world.player;
+  for (let i = world.helis.length - 1; i >= 0; i--) {
+    const h = world.helis[i];
+    h.rotor += dt * 25;
+    // The heli leads the player by ~150 units (in the direction of travel),
+    // so it stays inside the chase camera's frame instead of hovering
+    // directly overhead (which would be above the top of the screen).
+    const dir = p.car ? p.car.angle : p.angle;
+    const tx = p.x + Math.cos(dir) * 150;
+    const ty = p.y + Math.sin(dir) * 150;
+    const dx = tx - h.x;
+    const dy = ty - h.y;
+    const d = Math.hypot(dx, dy);
+    const pd = Math.hypot(p.x - h.x, p.y - h.y);
+    if (pd > TUNING.HELI_LOSE_RANGE) {
+      h.lostT += dt;
+      if (h.lostT > TUNING.HELI_LOSE_S) {
+        world.helis.splice(i, 1);
+        continue;
+      }
+    } else {
+      h.lostT = 0;
+    }
+    const sp = Math.min(TUNING.HELI_SPEED, d * 1.5);
+    if (d > 1) {
+      h.x += (dx / d) * sp * dt;
+      h.y += (dy / d) * sp * dt;
+    }
+    h.angle = Math.atan2(dy, dx);
+    h.z = TUNING.HELI_HEIGHT + Math.sin(world.time * 2 + i) * 6;
+  }
+}
+
+// Time trial (round 6 side activity): tower -> airport against the clock.
+// Started with T while in a car; wrecking or leaving the car fails it.
+function updateTrial(world, dt) {
+  const tr = world.trial;
+  if (!tr || !tr.active || tr.done) return;
+  tr.time = world.time - tr.startT;
+  const p = world.player;
+  if (!p.car || p.car.wrecked) {
+    tr.active = false;
+    tr.failed = true;
+    postFeed(world, 'Time trial failed — the car is wrecked.');
+    return;
+  }
+  const place = PLACES[tr.checkpoints[tr.idx]];
+  if (place && Math.hypot(p.x - place.x, p.y - place.y) < TUNING.GOTO_RADIUS) {
+    tr.idx++;
+    if (tr.idx >= tr.checkpoints.length) {
+      tr.active = false;
+      tr.done = true;
+      const reward = tr.time <= TUNING.TRIAL_PAR_S ? TUNING.TRIAL_REWARD_PAR : TUNING.TRIAL_REWARD_FINISH;
+      p.money += reward;
+      tr.reward = reward;
+      postFeed(world, 'Time trial done in ' + fmtTime(tr.time) + ' — +$' + reward + '!');
+    }
+  }
+}
+
 function updatePolice(world, dt) {
   const want = world.stars >= TUNING.POLICE_SPAWN_STARS ? Math.min(2 + world.stars, 4) : 0;
   if (world.cops.length < want) {
@@ -605,6 +769,17 @@ function updatePolice(world, dt) {
     if (world._copSpawnT <= 0) {
       world._copSpawnT = 1.0;
       spawnCop(world);
+    }
+  }
+  // SWAT van (round 6, 6 stars only): one tougher, faster cruiser. Missions
+  // never reach 6 stars, so SWAT only shows up on free-roam crime sprees.
+  const wantSwat = world.stars >= TUNING.SWAT_SPAWN_STARS ? 1 : 0;
+  const swatCount = world.cops.filter((c) => c.swat && !c.wrecked).length;
+  if (swatCount < wantSwat) {
+    world._swatSpawnT -= dt;
+    if (world._swatSpawnT <= 0) {
+      world._swatSpawnT = 2.0;
+      spawnSwat(world);
     }
   }
   if (world.stars === 0 && world.cops.length > 0) {
@@ -627,7 +802,7 @@ function updatePolice(world, dt) {
       const steer = clamp(diff * 2.2, -1, 1);
       const authority = Math.max(0, 1 - 0.3 * Math.abs(cop.speed) / TUNING.CAR_MAX_SPEED);
       cop.angle += TUNING.TURN_RATE * steer * clamp(Math.abs(cop.speed) / 80, 0.15, 1) * authority * dt;
-      cop.speed = Math.min(cop.speed + 300 * dt, 420);
+      cop.speed = Math.min(cop.speed + 300 * dt, cop.swat ? TUNING.SWAT_MAX_SPEED : 420);
     }
     cop.x += Math.cos(cop.angle) * cop.speed * dt;
     cop.y += Math.sin(cop.angle) * cop.speed * dt;
@@ -858,10 +1033,22 @@ export function stepWorld(world, dt, input) {
   const enterEdge = !!input.enterPressed && !world._prevEnter;
   const punchEdge = !!input.punchPressed && !world._prevPunch;
   const reloadEdge = !!input.reloadPressed && !world._prevReload;
+  const trialEdge = !!input.trialPressed && !world._prevTrial;
   world._prevEnter = !!input.enterPressed;
   world._prevPunch = !!input.punchPressed;
   world._prevReload = !!input.reloadPressed;
   world._prevSwitch = !!input.switchPressed;
+  world._prevTrial = !!input.trialPressed;
+
+  // Time trial start (round 6): T while in a car, no trial running.
+  if (trialEdge && world.screen === 'play' && !world.over && world.player.car && (!world.trial || !world.trial.active)) {
+    world.trial = {
+      active: true, done: false, failed: false,
+      startT: world.time, time: 0,
+      checkpoints: TRIAL_ROUTE.checkpoints, idx: 0, reward: 0,
+    };
+    postFeed(world, 'Time trial started — tower to airport, beat the clock!');
+  }
 
   if (!world.over) {
     const p = world.player;
@@ -892,7 +1079,10 @@ export function stepWorld(world, dt, input) {
           // Stealing any car is a crime (+20 heat): a cold steal gets the
           // player wanted (1 star). A getaway steal — already wanted —
           // adds no new heat (the player is already hot).
-          if (world.stars === 0) addHeat(world, TUNING.STEAL_HEAT);
+          if (world.stars === 0) {
+            addHeat(world, TUNING.STEAL_HEAT);
+            postFeed(world, 'Someone just jacked a car outside the garage!!');
+          }
           p.x = best.x;
           p.y = best.y;
           p.angle = best.angle;
@@ -932,15 +1122,42 @@ export function stepWorld(world, dt, input) {
     updateBullets(world, dt);
     updateEnemies(world, dt);
     updatePolice(world, dt);
+    updateHelis(world, dt);
     updatePickups(world, dt);
     collideCars(world, dt);
 
-    if (world.time - world.lastHeatGain > TUNING.HEAT_QUIET_S) {
-      world.heat = Math.max(0, world.heat - TUNING.HEAT_DECAY * dt);
+    // Hiding (round 6): when no cop has line of sight for HIDDEN_LOSE_S the
+    // player is hidden and heat decays twice as fast. A helicopter overhead
+    // always spots the player, so hiding only works below 4 stars. The
+    // baseline decay (3/s after 5s quiet) is unchanged when spotted.
+    if (world.stars > 0) {
+      if (isSpotted(world)) world.hiddenT = 0;
+      else world.hiddenT += dt;
+    } else {
+      world.hiddenT = 0;
     }
-    world.stars = Math.min(5, Math.floor(world.heat / 20));
+    if (world.time - world.lastHeatGain > TUNING.HEAT_QUIET_S) {
+      const rate = world.hiddenT > TUNING.HIDDEN_LOSE_S ? TUNING.HIDDEN_DECAY : TUNING.HEAT_DECAY;
+      world.heat = Math.max(0, world.heat - rate * dt);
+    }
+    world.stars = Math.min(TUNING.STARS_MAX, Math.floor(world.heat / 20));
+    if (world.stars > world._prevStars) {
+      const msgs = {
+        1: 'Cops are looking for someone near the garage.',
+        2: 'Police chase on the strip, stay inside!',
+        3: 'Half the department is out tonight.',
+        4: 'There is a HELICOPTER over the city!',
+        5: 'Five stars. The whole city is watching.',
+        6: 'SIX STARS. The city is on lockdown!!',
+      };
+      postFeed(world, msgs[world.stars] || 'Wanted level up.');
+    } else if (world.stars === 0 && world._prevStars > 0) {
+      postFeed(world, 'They lost him. How??');
+    }
+    world._prevStars = world.stars;
 
     checkMissionStep(world, dt);
+    updateTrial(world, dt);
   }
 
   updateTraffic(world, dt);
@@ -965,4 +1182,9 @@ export function stepWorld(world, dt, input) {
   if (world.shake > 0) world.shake = Math.max(0, world.shake - dt * 60);
   if (world.muzzleT > 0) world.muzzleT -= dt;
   if (world.hornT > 0) world.hornT -= dt;
+  if (world.feedFlash > 0) world.feedFlash -= dt;
+  if (world.stuntFlash) {
+    world.stuntFlash.t -= dt;
+    if (world.stuntFlash.t <= 0) world.stuntFlash = null;
+  }
 }

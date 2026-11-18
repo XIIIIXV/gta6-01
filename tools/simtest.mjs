@@ -8,8 +8,9 @@
 // shooting, and a long free-roam fuzz for exceptions or stalls. Each section uses
 // a fresh world so one section's bust/wreck cannot contaminate the next.
 import { createWorld, startMission, stepWorld, snapToRoad, roadPathPoints, losClear } from '../game/src/world.js';
-import { PLACES, STEP } from '../game/src/config.js';
+import { PLACES, STEP, TRIAL_ROUTE } from '../game/src/config.js';
 import { nearestRoadCenter } from '../game/src/city.js';
+import { RADIO_STATIONS } from '../game/src/audio.js';
 
 const TAU = Math.PI * 2;
 let failures = 0;
@@ -43,8 +44,13 @@ function makeDriver(world, tx, ty) {
     const car = p.car;
     const cx = car ? car.x : p.x;
     const cy = car ? car.y : p.y;
-    while (wp < path.length - 1 && Math.hypot(path[wp][0] - cx, path[wp][1] - cy) < 45) wp += 1;
+    // Intermediate waypoints are road intersections: advance past them at a
+    // generous radius (the roads are 96 wide) instead of demanding precision.
+    // The old 45px threshold + throttle cut-off at 60px left the car coasting
+    // to a stop 47px short of an intersection forever.
+    while (wp < path.length - 1 && Math.hypot(path[wp][0] - cx, path[wp][1] - cy) < 80) wp += 1;
     const [wx, wy] = path[Math.min(wp, path.length - 1)];
+    const isFinal = wp >= path.length - 1;
     const ang = car ? car.angle : p.angle;
     const desired = Math.atan2(wy - cy, wx - cx);
     let diff = (desired - ang) % TAU;
@@ -74,7 +80,9 @@ function makeDriver(world, tx, ty) {
     }
     let throttle = -1;
     if (speed > 460) throttle = 0;
-    if (d < 60) throttle = 0;
+    // Only come to a stop at the final waypoint; keep rolling through
+    // intermediate intersections.
+    if (isFinal && d < 60) throttle = 0;
     if (d < 350 && speed > 150) throttle = 1;
     return baseInput({ x: steer, y: throttle, active: throttle !== 0 || steer !== 0 });
   };
@@ -169,7 +177,7 @@ function driveTo(world, place, seconds) {
   world.screen = 'play';
   world.heat = 55;
   world.stars = 3;
-  world.lastCrime = world.time - 10;
+  world.lastHeatGain = world.time - 10;
   runSteps(world, 20, idle);
   check('wanted decays to 0', world.stars === 0, `stars=${world.stars} heat=${Math.round(world.heat)}`);
 }
@@ -305,6 +313,129 @@ function driveTo(world, place, seconds) {
   }
   check('no NaN in car state after fuzz', !nanFound);
   check('player state sane after fuzz', Number.isFinite(world.player.x) && Number.isFinite(world.player.y) && world.player.health >= 0);
+}
+
+// --- Round 6: helicopter spawns at 4 stars, never damages the player ------
+{
+  const world = createWorld(7);
+  world.screen = 'play';
+  world.heat = 85;
+  world.stars = 4;
+  world.lastHeatGain = world.time;
+  runSteps(world, 3, idle);
+  check('helicopter spawns at 4 stars', world.helis.length >= 1, `helis=${world.helis.length}`);
+  const h = world.helis[0];
+  check('helicopter flies at height', h && h.z > 100, `z=${h ? Math.round(h.z) : 'none'}`);
+  const hpBefore = world.player.health;
+  runSteps(world, 5, idle);
+  check('helicopter does not damage the player', world.player.health >= hpBefore, `health=${Math.round(world.player.health)}`);
+}
+
+// --- Round 6: 6-star cap + SWAT van at 6 stars ------------------------------
+{
+  const world = createWorld(8);
+  world.screen = 'play';
+  world.heat = 130;
+  world.stars = 6;
+  world.lastHeatGain = world.time;
+  runSteps(world, 6, idle);
+  check('wanted caps at 6 stars', world.stars === 6, `stars=${world.stars}`);
+  const swat = world.cops.filter((c) => c.swat && !c.wrecked);
+  check('SWAT van spawns at 6 stars', swat.length >= 1, `swat=${swat.length}`);
+  // A cruiser has 100 HP; the SWAT van spawns with 150 (it may take a hit
+  // during the 6s, so the bar is "clearly tougher than a cruiser").
+  check('SWAT is tougher than a cruiser', swat.length > 0 && swat[0].health > 100, `health=${swat.length > 0 ? swat[0].health : 'none'}`);
+}
+
+// --- Round 6: mission 7 starts, goto tower completes, guards spawn ---------
+{
+  const world = createWorld(9);
+  world.screen = 'play';
+  startMission(world, 6);
+  check('mission 7 starts', world.mission?.def.id === 7 && world.mission.def.name === 'The Tower Job');
+  stealNearestParked(world);
+  driveTo(world, PLACES.tower, 150);
+  check('mission 7 goto tower completes', world.mission.stepIndex === 1, `stepIndex=${world.mission.stepIndex}`);
+  const guards = world.enemies.filter((e) => !e.dead);
+  check('tower guards spawn (4 + boss)', guards.length >= 4, `guards=${guards.length}`);
+}
+
+// --- Round 6: radio has 3 stations with tracks -----------------------------
+{
+  check('radio has 3 stations', RADIO_STATIONS.length === 3, `stations=${RADIO_STATIONS.length}`);
+  check('each station has 2 tracks', RADIO_STATIONS.every((s) => s.tracks && s.tracks.length === 2));
+}
+
+// --- Round 6: save/load round-trip (mocked localStorage) --------------------
+{
+  globalThis.localStorage = {
+    _d: {},
+    getItem(k) { return this._d[k] ?? null; },
+    setItem(k, v) { this._d[k] = String(v); },
+    removeItem(k) { delete this._d[k]; },
+  };
+  const { saveGame, loadSave, clearSave } = await import('../game/src/save.js');
+  const world = createWorld(10);
+  world.screen = 'play';
+  world.player.money = 1234;
+  world.missionIndex = 3;
+  world.stats.kills = 9;
+  check('save writes', saveGame(world) === true);
+  const s = loadSave();
+  check('save round-trips money/mission/kills', s && s.money === 1234 && s.missionIndex === 3 && s.kills === 9, `save=${JSON.stringify(s)}`);
+  clearSave();
+  check('clearSave removes the save', loadSave() === null);
+}
+
+// --- Round 6: time trial completes and pays ---------------------------------
+{
+  const world = createWorld(11);
+  world.screen = 'play';
+  stealNearestParked(world);
+  const car = world.player.car;
+  const moneyBefore = world.player.money;
+  world.trial = { active: true, done: false, failed: false, startT: world.time, time: 0, checkpoints: TRIAL_ROUTE.checkpoints, idx: 0, reward: 0 };
+  // Teleport the car to each checkpoint in turn (the trial logic only cares
+  // about reaching the radius, not how the car got there).
+  for (const key of TRIAL_ROUTE.checkpoints) {
+    const place = PLACES[key];
+    car.x = place.x;
+    car.y = place.y;
+    world.player.x = place.x;
+    world.player.y = place.y;
+    runSteps(world, 1, idle);
+  }
+  check('time trial completes', world.trial.done === true, `done=${world.trial.done} reward=${world.trial.reward}`);
+  check('time trial pays a reward', world.player.money > moneyBefore, `money=${world.player.money} (was ${moneyBefore})`);
+}
+
+// --- Round 6: stunt jump pays ----------------------------------------------
+{
+  const world = createWorld(12);
+  world.screen = 'play';
+  stealNearestParked(world);
+  const car = world.player.car;
+  const ramp = world.city.ramps[0];
+  const moneyBefore = world.player.money;
+  // Put the car just before the ramp (opposite its facing direction) and
+  // drive into it at speed along the road.
+  car.x = ramp.x - Math.cos(ramp.angle) * 60;
+  car.y = ramp.y - Math.sin(ramp.angle) * 60;
+  car.angle = ramp.angle;
+  car.speed = 300;
+  world.player.x = car.x;
+  world.player.y = car.y;
+  runSteps(world, 4, idle);
+  check('stunt jump pays a reward', world.player.money > moneyBefore, `money=${world.player.money} (was ${moneyBefore})`);
+}
+
+// --- Round 6: NEONFEED posts on a steal ------------------------------------
+{
+  const world = createWorld(13);
+  world.screen = 'play';
+  stealNearestParked(world);
+  check('feed posts on steal', world.feed.length >= 1, `feed=${world.feed.length}`);
+  check('feed post has author + text', world.feed.length > 0 && !!world.feed[0].author && !!world.feed[0].text);
 }
 
 console.log(failures === 0 ? 'ALL SIM TESTS PASSED' : `${failures} FAILURES`);

@@ -4,12 +4,12 @@
 // v5 rebuild — Three.js 3D, verified under recording 01a1ec5a-fd3e-7487-9558-a6fe091d3690
 // v3 rebuild — verified under recording 01a1eabc
 // v4 rebuild — Three.js 3D, verified under recording 01a1ec2e-e25c-729b-9c2a-93fbc8ceda32
-// NEON BAY winrate harness (Node, no browser): plays a FULL 6-mission
+// NEON BAY winrate harness (Node, no browser): plays a FULL 7-mission
 // playthrough with an honest road-following autopilot (same driver patterns as
 // tools/simtest.mjs) across N seeds and reports the win rate + a failure
 // breakdown by mission.
 //
-// A run "wins" only if all 6 missions complete (world.screen === 'ending')
+// A run "wins" only if all 7 missions complete (world.screen === 'ending')
 // without world.over (wasted / busted / mission failed) and without a
 // soft-lock (no mission-step / kill / stars progress for >120s of game time).
 // The driver never teleports the player to a mission objective: the only

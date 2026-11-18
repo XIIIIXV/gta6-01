@@ -1,37 +1,41 @@
-// main.ts — NEON BAY entrypoint (v8 rebuild).
-// Run with: node main.ts
-// Guards that the game files exist, then logs a build summary.
+// main.ts — NEON BAY entrypoint (round 6).
+// Hands the game in: copies game/ and screenshots/ from beside this file to
+// /output (or $MAKEFUN_OUTPUT_DIR) and writes /output/dossier.json with the
+// vendored make.fun library. The scorer's own caps (best-game-01 gate.json)
+// are passed so this program fails exactly where the scorer would refuse an
+// entry: more than 4 screenshots or one over 256 KiB; more than 993 files in
+// game/ or 48 MiB of game files, or a path under game/ over 1000 bytes.
+//
+// Serve it locally with `node serve.ts`, then open http://localhost:8080.
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   rm -rf out && mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildDossier } from './vendor/makefun-game.ts';
 
-const root = new URL('.', import.meta.url).pathname;
-const indexPath = join(root, 'game', 'index.html');
-const srcDir = join(root, 'game', 'src');
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-if (!existsSync(indexPath)) {
-  console.error('[neon-bay] ERROR: game/index.html is missing');
-  process.exit(1);
-}
-if (!existsSync(srcDir)) {
-  console.error('[neon-bay] ERROR: game/src/ is missing');
-  process.exit(1);
-}
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
-const files = readdirSync(srcDir).filter((f) => f.endsWith('.js')).sort();
-if (files.length === 0) {
-  console.error('[neon-bay] ERROR: game/src/ has no .js files');
-  process.exit(1);
-}
+// NEON BAY: hand-rolled WebGL 3D open-world crime game — 3.2 km² of neon
+// streets, 7 story missions, 6-star wanted system with helicopter chases,
+// radio stations, save/load, side activities (time trial, stunt jumps) and
+// a GTA 6-style social feed. No libraries, no CDN, no network requests.
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  }),
+);
 
-console.log('[neon-bay] NEON BAY build summary');
-console.log('[neon-bay] entry: game/index.html (' + statSync(indexPath).size + ' bytes)');
-let total = statSync(indexPath).size;
-for (const f of files) {
-  const size = statSync(join(srcDir, f)).size;
-  total += size;
-  console.log('[neon-bay]   game/src/' + f + ' — ' + size + ' bytes');
-}
-console.log('[neon-bay] total: ' + total + ' bytes across ' + (files.length + 1) + ' files');
-console.log('[neon-bay] renderer: hand-rolled WebGL (game/src/gl.js + render.js), no external libraries');
-console.log('[neon-bay] serve: node serve.ts --port 8080  (then open http://localhost:8080/)');
+console.log('[neon-bay] handed in game/ + screenshots/ to ' + out + ' (dossier.json written)');

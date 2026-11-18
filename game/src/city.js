@@ -129,6 +129,7 @@ export function createCity(rng) {
   const barriers = [];
   const manholes = [];
   const puddles = [];
+  const ramps = [];
 
   // Blocks sit between the roads: 5 x 5 blocks, each 160 x 160, from
   // 220..380, 520..680, 820..980, 1120..1280, 1420..1580 in each axis.
@@ -205,6 +206,12 @@ export function createCity(rng) {
   for (let i = 0; i < 4; i++) {
     palms.push({ x: 1560 + i * 55, y: 235 + (i % 2) * 30, h: 52 + rng() * 10, lean: (rng() - 0.5) * 0.5 });
   }
+  // Round 6: more palms — a row along the docks beach and a pair at the plaza.
+  for (let i = 0; i < 4; i++) {
+    palms.push({ x: 1560 + i * 55, y: 90 + (i % 2) * 24, h: 48 + rng() * 12, lean: (rng() - 0.5) * 0.5 });
+  }
+  palms.push({ x: 690, y: 1290, h: 54, lean: 0.2 });
+  palms.push({ x: 810, y: 1410, h: 50, lean: -0.2 });
 
   // Street lamps along roads (glow pools at night).
   for (let i = 0; i < 24; i++) {
@@ -247,7 +254,13 @@ export function createCity(rng) {
   scatter(4, busStops, (x, y) => ({ x, y }));
   scatter(4, barriers, (x, y) => ({ x, y }));
   scatter(16, manholes, (x, y) => ({ x: x + (chance(0.5, rng) ? -40 : 40), y }));
-  scatter(12, puddles, (x, y) => ({ x, y, r: 14 + rng() * 14 }));
+  scatter(18, puddles, (x, y) => ({ x, y, r: 14 + rng() * 14 }));
+
+  // Round 6: stunt ramps on the roads (jump at speed for cash). They are
+  // visual + trigger zones only — no collision, so the autopilot is unaffected.
+  ramps.push({ x: 1650, y: 750, angle: Math.PI / 2 });
+  ramps.push({ x: 750, y: 1650, angle: 0 });
+  ramps.push({ x: 450, y: 1050, angle: -Math.PI / 2 });
 
   // 3 billboards in the edge strips (perimeter, no buildings there).
   billboards.push({ x: 60, y: 900, angle: 0 });
@@ -271,6 +284,7 @@ export function createCity(rng) {
     barriers,
     manholes,
     puddles,
+    ramps,
     tower: { x: GRAND_TOWER.x, y: GRAND_TOWER.y, w: GRAND_TOWER.w, h: GRAND_TOWER.h },
   };
 }

@@ -5,8 +5,10 @@
 // worked: ambient 0.5 (in the shader), brighter palette, window bands
 // 8 tall + emissive 1.7, big lamp glow pools.
 
-import { CITY, PLACES, GRAND_TOWER, TUNING, BEST_TIMES_KEY, CONTROLS_HELP } from './config.js';
+import { CITY, PLACES, GRAND_TOWER, TUNING, BEST_TIMES_KEY, CONTROLS_HELP, TRIAL_ROUTE } from './config.js';
 import { MISSIONS, missionPlace, fmtTime } from './missions.js';
+import { radioStation, radioTrack, radioIsOn } from './audio.js';
+import { loadSave } from './save.js';
 import {
   createGL, isWebGLAvailable,
   identity, translate, rotateX, rotateY, rotateZ, scale, multiply,
@@ -16,11 +18,15 @@ import {
 export function loadBestTime() {
   try {
     const raw = localStorage.getItem(BEST_TIMES_KEY);
-    if (!raw) return { missions: {}, total: null };
+    if (!raw) return { missions: {}, total: null, trial: null };
     const d = JSON.parse(raw);
-    return { missions: d.missions || {}, total: d.total === undefined ? null : d.total };
+    return {
+      missions: d.missions || {},
+      total: d.total === undefined ? null : d.total,
+      trial: d.trial === undefined ? null : d.trial,
+    };
   } catch (e) {
-    return { missions: {}, total: null };
+    return { missions: {}, total: null, trial: null };
   }
 }
 
@@ -28,6 +34,16 @@ export function saveBestTime(total) {
   try {
     const d = loadBestTime();
     if (d.total === null || total < d.total) d.total = total;
+    localStorage.setItem(BEST_TIMES_KEY, JSON.stringify(d));
+  } catch (e) {
+    // Storage is best-effort.
+  }
+}
+
+export function saveTrialBest(time) {
+  try {
+    const d = loadBestTime();
+    if (d.trial === null || time < d.trial) d.trial = time;
     localStorage.setItem(BEST_TIMES_KEY, JSON.stringify(d));
   } catch (e) {
     // Storage is best-effort.
@@ -44,7 +60,7 @@ export function saveMissionBest(name, time) {
   }
 }
 
-const FOG_COLOR = '#0a0e1e';
+const FOG_COLOR = '#1a0f2e';
 const FOG_NEAR = 1200;
 const FOG_FAR = 3400;
 
@@ -316,7 +332,8 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
     anim.spin += (car.speed || 0) * dt / 5;
     const wrecked = car.wrecked;
     const bodyColor = wrecked ? '#3a3a42' : car.color;
-    const base = compose(_t1, x, 0, y, 0, -car.angle, 0, 1, 1, 1);
+    // Round 6: car.z is the stunt-jump height (visual only).
+    const base = compose(_t1, x, car.z || 0, y, 0, -car.angle, 0, 1, 1, 1);
     // Blob shadow is drawn in the transparent pass; body here.
     // Body.
     compose(_t2, 0, 8, 0, 0, 0, 0, 52, 13, 26);
@@ -351,14 +368,24 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
         gl.drawBox(_t3, '#ff2e2e', 1.2);
       }
       if (car.police) {
-        // Larger police light bar, red/blue alternating by time.
-        const flash = Math.floor(worldTime() * 4) % 2 === 0;
-        compose(_t2, -3, 27, -5, 0, 0, 0, 10, 4, 7);
-        multiply(base, _t2, _t3);
-        gl.drawBox(_t3, flash ? '#ff2e2e' : '#222630', flash ? 2.0 : 0);
-        compose(_t2, -3, 27, 5, 0, 0, 0, 10, 4, 7);
-        multiply(base, _t2, _t3);
-        gl.drawBox(_t3, !flash ? '#2e6bff' : '#222630', !flash ? 2.0 : 0);
+        if (car.swat) {
+          // SWAT van: white stripe + roof rack, no light bar.
+          compose(_t2, 0, 14, 0, 0, 0, 0, 52, 3, 26);
+          multiply(base, _t2, _t3);
+          gl.drawBox(_t3, '#e8ecf5', 0.3);
+          compose(_t2, -3, 27, 0, 0, 0, 0, 20, 4, 18);
+          multiply(base, _t2, _t3);
+          gl.drawBox(_t3, '#222630', 0);
+        } else {
+          // Larger police light bar, red/blue alternating by time.
+          const flash = Math.floor(worldTime() * 4) % 2 === 0;
+          compose(_t2, -3, 27, -5, 0, 0, 0, 10, 4, 7);
+          multiply(base, _t2, _t3);
+          gl.drawBox(_t3, flash ? '#ff2e2e' : '#222630', flash ? 2.0 : 0);
+          compose(_t2, -3, 27, 5, 0, 0, 0, 10, 4, 7);
+          multiply(base, _t2, _t3);
+          gl.drawBox(_t3, !flash ? '#2e6bff' : '#222630', !flash ? 2.0 : 0);
+        }
       }
       if (car === world.player.car) {
         // Neon underglow — a subtle rim just past the body (52x26), not a
@@ -366,6 +393,46 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
         // red/gold body from the chase camera.
         quadAt(x, 1.2, y, 0, 0, 0, 56, 1, 30, '#37e6ff', 0.8, 0.35);
       }
+    }
+  }
+
+  function drawHeli(world, heli) {
+    const x = heli.x;
+    const y = heli.y;
+    const z = heli.z || 190;
+    const base = compose(_t1, x, z, y, 0, -heli.angle, 0, 1, 1, 1);
+    // Body.
+    compose(_t2, 0, 0, 0, 0, 0, 0, 46, 14, 20);
+    multiply(base, _t2, _t3);
+    gl.drawBox(_t3, '#1a1a2e', 0.3);
+    // Cockpit glass.
+    compose(_t2, 20, 2, 0, 0, 0, 0, 12, 10, 18);
+    multiply(base, _t2, _t3);
+    gl.drawBox(_t3, '#8fd0ff', 0.6);
+    // Tail boom + fin.
+    compose(_t2, -34, 4, 0, 0, 0, 0, 26, 6, 6);
+    multiply(base, _t2, _t3);
+    gl.drawBox(_t3, '#1a1a2e', 0.3);
+    compose(_t2, -46, 10, 0, 0, 0, 0, 4, 14, 2);
+    multiply(base, _t2, _t3);
+    gl.drawBox(_t3, '#2a4a8f', 0.3);
+    // Main rotor: two crossed blades spinning around the vertical axis.
+    const rot = heli.rotor || 0;
+    compose(_t2, 0, 10, 0, 0, rot, 0, 1, 1, 1);
+    multiply(base, _t2, _t3);
+    compose(_t4, 0, 0, 0, 0, 0, 0, 90, 1.5, 6);
+    multiply(_t3, _t4, _t5);
+    gl.drawBox(_t5, '#3a3f4e', 0);
+    compose(_t2, 0, 10, 0, 0, rot + Math.PI / 2, 0, 1, 1, 1);
+    multiply(base, _t2, _t3);
+    compose(_t4, 0, 0, 0, 0, 0, 0, 6, 1.5, 90);
+    multiply(_t3, _t4, _t5);
+    gl.drawBox(_t5, '#3a3f4e', 0);
+    // Skids.
+    for (const wz of [-10, 10]) {
+      compose(_t2, 0, -10, wz, 0, 0, 0, 40, 2, 3);
+      multiply(base, _t2, _t3);
+      gl.drawBox(_t3, '#0c0c10', 0);
     }
   }
 
@@ -380,7 +447,7 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
     const camInfo = updateCamera(world, dt);
     gl.setCamera(viewMat, projMat, camInfo.eye);
     gl.setFog(FOG_COLOR, FOG_NEAR, FOG_FAR);
-    gl.clear(0.04, 0.06, 0.14);
+    gl.clear(0.12, 0.06, 0.18);
     const t = world.time;
     const p = world.player;
     const city = world.city;
@@ -423,6 +490,11 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
       // Rooftop props (AC box + antenna).
       boxAt(b.x - b.w / 4, b.height + 5, b.y, 0, 12, 5, 10, '#1c1f2a', 0);
       boxAt(b.x + b.w / 4, b.height + 8, b.y, 0, 2, 14, 2, '#3a3f4e', 0);
+      // Round 6: blinking red beacon on tall buildings.
+      if (b.height > 120) {
+        const blink = Math.sin(t * 2 + b.x) > 0;
+        boxAt(b.x + b.w / 4, b.height + 16, b.y, 0, 5, 5, 5, '#ff2e2e', blink ? 2.0 : 0.2);
+      }
       const dCam = Math.hypot(b.x - p.x, b.y - p.y);
       if (dCam < 900) {
         // Window bands on the most-visible face: 8 tall bright bands.
@@ -472,6 +544,9 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
       boxAt(sx, sy, sz, 0, st.s, st.s, st.s, '#ffffff', 1.4);
     }
     boxAt(eye[0] + 400, eye[1] + 500, eye[2] - 700, 0, 60, 60, 4, '#e8ecf5', 1.2);
+    // Sunset sun: a big orange disc low on the horizon with a pink halo.
+    boxAt(eye[0] - 500, eye[1] + 60, eye[2] - 800, 0, 110, 110, 4, '#ff7a2e', 1.8);
+    boxAt(eye[0] - 500, eye[1] + 60, eye[2] - 800, 0, 175, 175, 2, '#ff2e88', 0.5);
     // Trees + palms.
     for (const tr of city.trees) {
       boxAt(tr.x, tr.h / 2, tr.y, 0, 5, tr.h, 5, '#5a3a22', 0);
@@ -517,6 +592,16 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
       boxAt(bs.x + 7, 26, bs.y, 0, 32, 2, 12, '#2a2f45', 0);
     }
     for (const br of city.barriers) boxAt(br.x, 5, br.y, 0, 22, 10, 4, '#e67e22', 0.4);
+    // Stunt ramps (round 6): sloped orange wedges with a gold top stripe.
+    for (const ramp of city.ramps) {
+      compose(_model, ramp.x, 6, ramp.y, 0, ramp.angle, 0, 1, 1, 1);
+      compose(_t1, 0, 0, 0, 0, 0, -0.35, 40, 12, 30);
+      multiply(_model, _t1, _t2);
+      gl.drawBox(_t2, '#e67e22', 0.4);
+      compose(_t1, 0, 0, 0, 0, 0, -0.35, 40, 2, 30);
+      multiply(_model, _t1, _t2);
+      gl.drawBox(_t2, '#ffd700', 0.8);
+    }
     // Fountains (animated water discs + spray jets).
     for (const f of city.fountains) {
       const pulse = 1 + Math.sin(t * 2) * 0.08;
@@ -533,6 +618,8 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
     quadAt(1960, 1, 250, 0, 0, 0, 320, 1, 420, '#1e5a8a', shim, 0.92);
     // Cars.
     for (const car of world.cars) drawCar(world, car, dt);
+    // Police helicopters (round 6).
+    for (const heli of world.helis) drawHeli(world, heli);
     // Player on foot / peds / enemies.
     if (!p.car) {
       drawPerson(p.x, p.y, p.angle, '#37e6ff', '#2a2f45', {
@@ -590,9 +677,9 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
       const fz = b.y + (nz !== 0 ? nz * (b.h / 2 + 2.4) : 0);
       faceQuad(nx, nz, fx, b.height * 0.82, fz, faceW * 0.7, 26, b.neonColor, 1.0, 0.22);
     }
-    // Puddles (dark glossy).
+    // Puddles (dark glossy, wetter in round 6).
     for (const pd of city.puddles) {
-      quadAt(pd.x, 1.0, pd.y, 0, 0, 0, pd.r * 2, 1, pd.r * 2, '#16283a', 0.4, 0.75);
+      quadAt(pd.x, 1.0, pd.y, 0, 0, 0, pd.r * 2, 1, pd.r * 2, '#16283a', 0.7, 0.8);
     }
     // Blob shadows under cars + people.
     for (const car of world.cars) {
@@ -612,6 +699,14 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
       if (cop.wrecked) continue;
       const flash = Math.floor(t * 4) % 2 === 0;
       quadAt(cop.x, 1.1, cop.y, 0, 0, 0, 90, 1, 70, flash ? '#ff2e2e' : '#2e6bff', 0.8, 0.3);
+    }
+    // Helicopter searchlights (round 6): a bright pool on the ground under
+    // the helicopter plus a faint crossed beam down to it.
+    for (const heli of world.helis) {
+      const hz = heli.z || 160;
+      quadAt(heli.x, 1.4, heli.y, 0, 0, 0, 150, 1, 150, '#fff6c8', 0.9, 0.18);
+      quadAt(heli.x, hz / 2, heli.y, Math.PI / 2, 0, 0, 26, 1, hz, '#fff6c8', 0.5, 0.10);
+      quadAt(heli.x, hz / 2, heli.y, Math.PI / 2, Math.PI / 2, 0, 26, 1, hz, '#fff6c8', 0.5, 0.10);
     }
     // Exhaust / skid particles.
     for (const pt of world.particles) {
@@ -645,10 +740,19 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
       hud.fillText('NEON BAY', w / 2, h * 0.32);
       hud.fillStyle = '#e8ecf5';
       hud.font = '24px sans-serif';
-      hud.fillText('An open-world crime story — 3.2 km² of neon, heat and getaways.', w / 2, h * 0.32 + 44);
+      hud.fillText('An open-world crime story — 7 missions, 3.2 km² of neon, heat and getaways.', w / 2, h * 0.32 + 44);
       hud.font = 'bold 26px sans-serif';
       hud.fillStyle = '#37e6ff';
-      hud.fillText('Press Enter to start', w / 2, h * 0.48);
+      // Round 6: continue a saved run (C) or start fresh (Enter).
+      const save = loadSave();
+      const canContinue = save && save.missionIndex < MISSIONS.length;
+      if (canContinue) {
+        hud.fillText('Press Enter — New Game', w / 2, h * 0.48);
+        hud.fillStyle = '#ffd700';
+        hud.fillText('Press C — Continue: Mission ' + (save.missionIndex + 1) + ' ($' + save.money + ')', w / 2, h * 0.48 + 36);
+      } else {
+        hud.fillText('Press Enter to start', w / 2, h * 0.48);
+      }
       hud.fillStyle = '#c8ccd8';
       hud.font = '17px sans-serif';
       const lines = CONTROLS_HELP.split('   •   ');
@@ -678,10 +782,10 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
     // Top-left status panel.
     hud.textAlign = 'left';
     hud.fillStyle = 'rgba(4, 6, 16, 0.6)';
-    hud.fillRect(14, 14, 250, 108);
-    // Wanted stars.
+    hud.fillRect(14, 14, 280, 132);
+    // Wanted stars (6 max, round 6).
     hud.font = 'bold 22px sans-serif';
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       hud.fillStyle = i < world.stars ? '#ffd700' : '#3a3f4e';
       hud.fillText('★', 24 + i * 26, 40);
     }
@@ -700,6 +804,12 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
     if (p.car) {
       hud.fillText(Math.round(Math.abs(p.car.speed) * 0.36 * 2) + ' km/h', 140, 104);
     }
+    // Radio (round 6).
+    hud.fillStyle = radioIsOn() ? '#37e6ff' : '#3a3f4e';
+    hud.font = '14px sans-serif';
+    const st = radioStation();
+    const tr = radioTrack();
+    hud.fillText('♪ ' + (radioIsOn() ? st.name + ' — ' + tr.title : 'RADIO OFF'), 24, 128);
     // Mission panel (top-right).
     const m = world.mission;
     if (m) {
@@ -776,9 +886,17 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
       hud.fill();
     }
     for (const car of world.cars) {
-      hud.fillStyle = car.police ? '#2e6bff' : '#e8e8e8';
+      // SWAT vans are white dots, cruisers blue, traffic grey (round 6).
+      hud.fillStyle = car.swat ? '#ffffff' : (car.police ? '#2e6bff' : '#e8e8e8');
       hud.beginPath();
       hud.arc(mx0 + car.x * k, my0 + car.y * k, car.police ? 3.5 : 2.5, 0, Math.PI * 2);
+      hud.fill();
+    }
+    // Police helicopters (round 6): yellow dots.
+    for (const heli of world.helis) {
+      hud.fillStyle = '#ffd700';
+      hud.beginPath();
+      hud.arc(mx0 + heli.x * k, my0 + heli.y * k, 4, 0, Math.PI * 2);
       hud.fill();
     }
     for (const e of world.enemies) {
@@ -798,10 +916,94 @@ export function createRenderer(gameCanvas, hudCanvas, world) {
         hud.stroke();
       }
     }
+    // Time-trial checkpoint (round 6): orange ring.
+    if (world.trial && world.trial.active) {
+      const tp = PLACES[world.trial.checkpoints[world.trial.idx]];
+      if (tp) {
+        hud.strokeStyle = '#ff7a2e';
+        hud.lineWidth = 2;
+        hud.beginPath();
+        hud.arc(mx0 + tp.x * k, my0 + tp.y * k, 6, 0, Math.PI * 2);
+        hud.stroke();
+      }
+    }
     hud.fillStyle = '#37e6ff';
     hud.beginPath();
     hud.arc(mx0 + p.x * k, my0 + p.y * k, 4, 0, Math.PI * 2);
     hud.fill();
+    // Time trial panel (round 6): top-centre timer.
+    const tr2 = world.trial;
+    if (tr2 && (tr2.active || tr2.done)) {
+      const names = { tower: 'Grand Tower', airport: 'Airport' };
+      hud.textAlign = 'center';
+      hud.fillStyle = 'rgba(4, 6, 16, 0.7)';
+      hud.fillRect(w / 2 - 180, 14, 360, 64);
+      hud.fillStyle = '#ffd700';
+      hud.font = 'bold 19px sans-serif';
+      if (tr2.done) {
+        hud.fillText('TIME TRIAL — DONE ' + fmtTime(tr2.time) + '  +$' + tr2.reward, w / 2, 40);
+      } else {
+        hud.fillText('TIME TRIAL ' + fmtTime(tr2.time) + ' / PAR ' + fmtTime(TUNING.TRIAL_PAR_S), w / 2, 40);
+        hud.fillStyle = '#e8ecf5';
+        hud.font = '15px sans-serif';
+        hud.fillText('Next: ' + (names[tr2.checkpoints[tr2.idx]] || tr2.checkpoints[tr2.idx]), w / 2, 62);
+      }
+    }
+    // Stunt flash (round 6).
+    if (world.stuntFlash) {
+      hud.textAlign = 'center';
+      hud.fillStyle = '#ffd700';
+      hud.font = 'bold 34px sans-serif';
+      hud.fillText(world.stuntFlash.text, w / 2, h * 0.30);
+    }
+    // NEONFEED panel (round 6): latest posts, bottom-left.
+    const feed = world.feed || [];
+    if (feed.length > 0 && !world.phoneOpen) {
+      const fw = 300;
+      const fh = 24 + Math.min(3, feed.length) * 40;
+      const fx = 14;
+      const fy = h - fh - 16;
+      hud.textAlign = 'left';
+      hud.fillStyle = 'rgba(4, 6, 16, 0.65)';
+      hud.fillRect(fx, fy, fw, fh);
+      hud.fillStyle = '#ff2e88';
+      hud.font = 'bold 14px sans-serif';
+      hud.fillText('NEONFEED' + (world.feedFlash > 0 ? '  • NEW' : ''), fx + 10, fy + 18);
+      hud.font = '13px sans-serif';
+      for (let i = 0; i < Math.min(3, feed.length); i++) {
+        const post = feed[i];
+        const py = fy + 36 + i * 40;
+        hud.fillStyle = '#37e6ff';
+        hud.fillText(post.author + '  ♥' + post.likes, fx + 10, py);
+        hud.fillStyle = '#e8ecf5';
+        hud.fillText(post.text.length > 42 ? post.text.slice(0, 42) + '…' : post.text, fx + 10, py + 15);
+      }
+    }
+    // Phone overlay (round 6): B opens a full NEONFEED view.
+    if (world.phoneOpen) {
+      hud.fillStyle = 'rgba(4, 6, 16, 0.8)';
+      hud.fillRect(w / 2 - 200, h / 2 - 220, 400, 440);
+      hud.textAlign = 'center';
+      hud.fillStyle = '#ff2e88';
+      hud.font = 'bold 24px sans-serif';
+      hud.fillText('NEONFEED', w / 2, h / 2 - 186);
+      hud.textAlign = 'left';
+      for (let i = 0; i < feed.length; i++) {
+        const py = h / 2 - 160 + i * 62;
+        hud.fillStyle = '#37e6ff';
+        hud.font = 'bold 15px sans-serif';
+        hud.fillText(feed[i].author + '  ♥' + feed[i].likes, w / 2 - 180, py);
+        hud.fillStyle = '#e8ecf5';
+        hud.font = '14px sans-serif';
+        const txt = feed[i].text;
+        hud.fillText(txt.length > 52 ? txt.slice(0, 52) : txt, w / 2 - 180, py + 18);
+        if (txt.length > 52) hud.fillText(txt.slice(52, 104), w / 2 - 180, py + 36);
+      }
+      hud.textAlign = 'center';
+      hud.fillStyle = '#c8ccd8';
+      hud.font = '15px sans-serif';
+      hud.fillText('Press B to close', w / 2, h / 2 + 200);
+    }
     // Mission summary overlay (during the cooldown after a completion).
     if (m && m.done && world.missionCooldown > 0) {
       const bt = loadBestTime();

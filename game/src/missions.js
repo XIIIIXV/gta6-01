@@ -73,6 +73,19 @@ export const MISSIONS = [
       { type: 'survive', surviveS: 45, label: 'Survive 45s' },
     ],
   },
+  {
+    id: 7,
+    name: 'The Tower Job',
+    par: 240,
+    reward: 1500,
+    tip: 'The Grand Tower holds the city\u2019s codes. Take the guards down, grab the case and get it to the airport.',
+    steps: [
+      { type: 'goto', place: 'tower', needCar: true, label: 'Drive to the Grand Tower' },
+      { type: 'kill', place: 'tower', kills: 4, boss: true, label: 'Take out 4 tower guards (chief is last)' },
+      { type: 'deliver', place: 'airport', label: 'Deliver the case to the airport' },
+      { type: 'goto', place: 'safehouse', needCar: true, label: 'Drive home to the safehouse' },
+    ],
+  },
 ];
 
 // Returns the PLACES entry for a step (same object reference every call),
