@@ -1,3 +1,5 @@
+// v5 rebuild — Three.js 3D, verified under recording 01a1ec5a-fd3e-7487-9558-a6fe091d3690
+// v4 rebuild — Three.js 3D, verified under recording 01a1ec2e-e25c-729b-9c2a-93fbc8ceda32
 // v3 rebuild — verified under recording 01a1eabc
 // Capture NEON BAY's screenshots with a headless Chromium: serve game/, open each
 // ?shot= scene from shots.json, wait for the game's own __shotReady flag, and save a
@@ -17,7 +19,7 @@ await new Promise((resolve) => {
   server.stdout.on('data', () => { clearTimeout(timer); resolve(); });
 });
 
-const browser = await chromium.launch({ executablePath: EXECUTABLE, args: ['--no-sandbox', '--disable-gpu'] });
+const browser = await chromium.launch({ executablePath: EXECUTABLE, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader'] });
 const results = [];
 for (const shot of SHOTS) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });

@@ -1,8 +1,8 @@
-// NEON BAY — seeded random helpers (v3 rebuild, written under recording 01a1eabc).
-// Deterministic RNG so a world built from a seed plays the same way every
-// time (the winrate harness replays seeds 1..200 and expects stable results).
+// NEON BAY — deterministic RNG (v5 rebuild, written from spec under recording).
+// Small seeded PRNG helpers shared by the city generator, traffic, peds and
+// enemy placement. Pure functions, no DOM, safe to import from Node or browser.
 
-/** mulberry32: a small fast seeded PRNG. Returns a function yielding [0, 1). */
+/** mulberry32: a tiny fast seeded PRNG. Returns a function yielding [0, 1). */
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -14,59 +14,48 @@ export function mulberry32(seed) {
   };
 }
 
-/** A handy RNG bundle built on mulberry32. */
+/** makeRng(seed): the world's RNG. Accepts a number or a string seed. */
 export function makeRng(seed) {
-  const next = mulberry32(seed);
-  return {
-    next,
-    /** Integer in [0, n). */
-    int(n) {
-      return Math.floor(next() * n);
-    },
-    /** Float in [a, b). */
-    range(a, b) {
-      return a + next() * (b - a);
-    },
-    /** Random element of an array. */
-    pick(arr) {
-      return arr[Math.floor(next() * arr.length)];
-    },
-    /** True with probability p. */
-    chance(p) {
-      return next() < p;
-    },
-  };
+  if (typeof seed === 'string') {
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i += 1) {
+      h ^= seed.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return mulberry32(h >>> 0);
+  }
+  return mulberry32(Number(seed) || 1);
 }
 
-/** Fisher–Yates shuffle. Returns a new shuffled array, input untouched. */
+/** shuffle(arr, rng): Fisher-Yates, returns the same array shuffled in place. */
 export function shuffle(arr, rng) {
-  const out = arr.slice();
-  for (let i = out.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng.next() * (i + 1));
-    const tmp = out[i];
-    out[i] = out[j];
-    out[j] = tmp;
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
   }
-  return out;
+  return arr;
 }
 
 /**
- * Pick one entry by weight. `entries` is [[value, weight], ...]; weights need
- * not sum to 1. Returns the value.
+ * weightedPick(entries, rng): pick one entry by weight.
+ * entries: [{ value, weight }, ...] (or [value, weight] pairs).
  */
 export function weightedPick(entries, rng) {
   let total = 0;
-  for (const [, w] of entries) total += w;
-  let roll = rng.next() * total;
-  for (const [value, w] of entries) {
+  for (const e of entries) total += Array.isArray(e) ? e[1] : e.weight;
+  let roll = rng() * total;
+  for (const e of entries) {
+    const w = Array.isArray(e) ? e[1] : e.weight;
     roll -= w;
-    if (roll <= 0) return value;
+    if (roll <= 0) return Array.isArray(e) ? e[0] : e.value;
   }
-  return entries[entries.length - 1][0];
+  const last = entries[entries.length - 1];
+  return Array.isArray(last) ? last[0] : last.value;
 }
 
-/** True with probability p, using the given rng (defaults to Math.random). */
+/** chance(p, rng): true with probability p (0..1). */
 export function chance(p, rng) {
-  if (rng) return rng.next() < p;
-  return Math.random() < p;
+  return rng() < p;
 }

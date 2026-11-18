@@ -2,7 +2,7 @@
   {
     "name": "1-start.jpg",
     "url": "http://localhost:8082/?shot=start&seed=1",
-    "size": 50472,
+    "size": 52517,
     "errors": [],
     "failed": [],
     "external": []
@@ -10,7 +10,7 @@
   {
     "name": "2-play.jpg",
     "url": "http://localhost:8082/?shot=play&seed=1",
-    "size": 57031,
+    "size": 80186,
     "errors": [],
     "failed": [],
     "external": []
@@ -18,7 +18,7 @@
   {
     "name": "3-chase.jpg",
     "url": "http://localhost:8082/?shot=chase&seed=1",
-    "size": 58818,
+    "size": 87654,
     "errors": [],
     "failed": [],
     "external": []
@@ -26,7 +26,7 @@
   {
     "name": "4-mission.jpg",
     "url": "http://localhost:8082/?shot=mission&seed=1",
-    "size": 62719,
+    "size": 63797,
     "errors": [],
     "failed": [],
     "external": []

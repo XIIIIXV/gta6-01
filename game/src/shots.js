@@ -1,85 +1,125 @@
-// shots.js — screenshot scene setup for NEON BAY.
-// The shots harness loads the game with ?shot=start|play|chase|mission
-// and screenshots it. This module puts the world into the matching state
-// so each capture shows the game at its best. Pure setup, no rendering.
+// NEON BAY — staged screenshot scenes (v5 rebuild, written from spec).
+// setupShot(world, name) stages one of the four shots.json scenes;
+// shotFromUrl() reads ?shot= / ?seed= from the page URL.
 
-import { startMission } from './world.js';
 import { PLACES } from './config.js';
+import { startMission } from './world.js';
+import { spawnCop, spawnDeliverCar } from './world.js';
 
-// Place the player in a parked car near a place, facing along the road.
-function putPlayerInCar(world, place, angle) {
-  const p = world.player;
-  let best = null;
-  let bd = Infinity;
-  for (const car of world.cars) {
-    if (car.wrecked || car.police || car.traffic) continue;
-    const d = Math.hypot(car.x - place.x, car.y - place.y);
-    if (d < bd) { bd = d; best = car; }
-  }
-  if (!best) return false;
-  best.x = place.x;
-  best.y = place.y;
-  best.angle = angle;
-  best.speed = 0;
-  best.health = 100;
-  p.x = place.x;
-  p.y = place.y;
-  p.angle = angle;
-  p.car = best;
-  return true;
-}
-
+/**
+ * setupShot(world, name): stage a scene. The game loop keeps stepping the
+ * world afterwards, so a shot stages a live moment, not a frozen frame.
+ * - 'start': title screen over the 3D city.
+ * - 'play': player driving in a car near the plaza at speed 220.
+ * - 'chase': 3-star chase, player in a car near the bank at speed 320,
+ *   heat 70, stars 3, three police cruisers parked behind the player.
+ * - 'mission': mission 2, deliver step active, player in the delivery car
+ *   at the docks.
+ */
 export function setupShot(world, name) {
+  const p = world.player;
   if (name === 'start') {
     world.screen = 'title';
     return;
   }
-  world.screen = 'play';
   if (name === 'play') {
-    // Driving through the city near the plaza.
-    putPlayerInCar(world, { x: PLACES.plaza.x, y: PLACES.plaza.y }, Math.PI);
-    if (world.player.car) world.player.car.speed = 220;
-  } else if (name === 'chase') {
-    // 3-star chase: player in a car, police cruisers on the tail.
-    putPlayerInCar(world, { x: PLACES.bank.x, y: PLACES.bank.y }, Math.PI / 2);
-    if (world.player.car) world.player.car.speed = 320;
-    world.heat = 70;
-    world.stars = 3;
-    // Park three police cruisers behind the player.
-    for (let i = 0; i < 3; i += 1) {
-      world.cars.push({
-        x: world.player.x - 120 - i * 90,
-        y: world.player.y - 50 + i * 50,
-        angle: Math.PI / 2,
-        speed: 300,
-        health: 100,
-        wrecked: false,
-        police: true,
-        traffic: false,
-        mission: null,
-        color: '#1a1a2e',
-        backoffT: 0,
-        stuckT: 0,
-        lastX: world.player.x,
-        lastY: world.player.y,
-      });
+    world.screen = 'play';
+    const car = nearestParked(world, PLACES.plaza.x, PLACES.plaza.y);
+    if (car) {
+      p.car = car;
+      car.traffic = false;
+      p.x = car.x;
+      p.y = car.y;
+      p.angle = car.angle;
+      car.x = PLACES.plaza.x - 60;
+      car.y = PLACES.plaza.y;
+      car.angle = Math.PI / 2;
+      car.speed = 220;
+      p.x = car.x;
+      p.y = car.y;
+      p.angle = car.angle;
     }
-  } else if (name === 'mission') {
-    // Mid-mission: mission 2 (delivery) active, marker visible at the club.
+    return;
+  }
+  if (name === 'chase') {
+    world.screen = 'play';
+    const car = nearestParked(world, PLACES.bank.x, PLACES.bank.y);
+    if (car) {
+      p.car = car;
+      car.traffic = false;
+      car.x = PLACES.bank.x - 40;
+      car.y = PLACES.bank.y;
+      car.angle = -Math.PI / 2;
+      car.speed = 320;
+      p.x = car.x;
+      p.y = car.y;
+      p.angle = car.angle;
+      world.heat = 70;
+      world.stars = 3;
+      world.lastCrime = world.time;
+      // Three cruisers parked behind the player (same shape as world cars).
+      // Close behind and flanking: the chase camera sits 178px behind the
+      // player, so anything trailing by >~100px falls below the frame. The
+      // cruisers chase (not parked), so they stay on the player's bumper.
+      const back = { x: -Math.cos(car.angle), y: -Math.sin(car.angle) };
+      const side = { x: -Math.sin(car.angle), y: Math.cos(car.angle) };
+      const spots = [
+        { d: 35, s: -75 },
+        { d: 50, s: 75 },
+        { d: 65, s: -40 },
+      ];
+      for (const spot of spots) {
+        const cx = car.x + back.x * spot.d + side.x * spot.s;
+        const cy = car.y + back.y * spot.d + side.y * spot.s;
+        const cop = spawnCop(world, cx, cy, car.angle);
+        // Match the player's speed so the cruisers keep up: starting from
+        // 0 they lag ~150px behind within a second (the player outruns
+        // them) and end up right at/behind the camera, out of frame.
+        cop.speed = 320;
+        cop._path = null;
+      }
+    }
+    return;
+  }
+  if (name === 'mission') {
+    world.screen = 'play';
     startMission(world, 1);
     world.mission.stepIndex = 1;
     world.mission.step = world.mission.def.steps[1];
-    putPlayerInCar(world, { x: PLACES.docks.x, y: PLACES.docks.y }, Math.PI);
-    if (world.player.car) world.player.car.speed = 180;
+    const dc = spawnDeliverCar(world);
+    p.car = dc;
+    dc.traffic = false;
+    p.x = dc.x;
+    p.y = dc.y;
+    p.angle = dc.angle;
+    return;
   }
+  // Unknown shot name: fall back to the title screen.
+  world.screen = 'title';
 }
 
-// Read the shot name from the page URL (?shot=...), if present.
-export function shotFromUrl() {
-  try {
-    const u = new URL(window.location.href);
-    return u.searchParams.get('shot');
-  } catch {
-    return null;
+function nearestParked(world, x, y) {
+  let best = null;
+  let bestD = Infinity;
+  for (const car of world.cars) {
+    if (car.wrecked || car.police || car.traffic) continue;
+    const d = Math.hypot(car.x - x, car.y - y);
+    if (d < bestD) {
+      bestD = d;
+      best = car;
+    }
   }
+  return best;
+}
+
+/**
+ * shotFromUrl(): { name, seed } from ?shot= / ?seed= (seed defaults to 1).
+ * name is null when the URL carries no ?shot=.
+ */
+export function shotFromUrl() {
+  if (typeof window === 'undefined') return { name: null, seed: 1 };
+  const params = new URLSearchParams(window.location.search);
+  const name = params.get('shot');
+  const seed = Number(params.get('seed') ?? 1) || 1;
+  return { name, seed };
 }

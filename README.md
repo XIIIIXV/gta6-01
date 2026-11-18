@@ -4,110 +4,122 @@
 [![rank](https://make.fun/badge/gta6-01/XIIIIXV/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
 [![reward](https://make.fun/badge/gta6-01/XIIIIXV/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
-A neon open-world crime spree in a 3.2 km² city. Steal cars, dodge the
-cops, and run 6 story missions across Neon Bay — from a quiet return to
-town to a city-wide getaway. Built for the
-[make.fun gta6-01 bounty](https://make.fun/bounty/gta6-01).
+An original open-world crime game (GTA-style, no Rockstar assets or names) for
+the make.fun **gta6-01** bounty ($1,666). A 3.2 km² neon city at night, built
+in real 3D with Three.js: steal cars, dodge the heat, run six story missions,
+and leave Neon Bay for good.
 
-## Play
+## How to play
 
-```bash
+```sh
 node serve.ts --port 8080
-# open http://localhost:8080/
+# then open http://localhost:8080/
 ```
 
-Or just open `game/index.html` in a browser (module scripts need to be
-served over HTTP for the imports to resolve — use the dev server above).
+Or run `node main.ts` for a build summary first.
+
+## The game
+
+- **Open world:** grid streets, ~15 buildings plus the Grand Tower landmark,
+  parks with animated fountains, neon signs, street lights, traffic cars and
+  pedestrians.
+- **Driving:** car-relative steering, traffic, car stealing (stealing raises
+  your wanted level), horn (H), pickups (health at the plaza, armor at the
+  docks, +50, respawn 30s).
+- **Wanted 0–5 stars + police:** cruisers chase and ram, back off, and
+  despawn when the heat dies down.
+- **Combat:** pistol (12-round mag, R to reload, Q to switch weapon, F to
+  punch), enemies with line-of-sight shooting, kill-step armor bonus (+50).
+- **Missions:** six story missions with PAR targets and cash rewards (below).
+  Mission-complete heals you. Best times are tracked in localStorage under
+  `neonbay.bestTimes` — a mission summary shows your time, best time, cash
+  earned, and **★ NEW BEST!** when you beat your best or **★ BEAT PAR!**
+  when you beat the PAR. A full run past M1 records per-mission bests; the
+  best total is only set when you finish all six missions.
+
+## Missions and PAR targets
+
+| # | Mission | PAR | Reward | Objective |
+|---|---------|-----|--------|-----------|
+| 1 | Back in Town | 90s | $250 | Steal a car, reach the safehouse |
+| 2 | The Package | 150s | $400 | Deliver the package to the club — don't wreck the car |
+| 3 | Crew Call | 180s | $500 | Clear 3 lookouts at the warehouse |
+| 4 | Bank of Neon Bay | 180s | $600 | Hold the bank 8s, lose the heat, get home |
+| 5 | Sal's Enforcers | 240s | $800 | Clear 7 enforcers — the last one is Sal |
+| 6 | The Long Goodbye | 150s | $1000 | Survive 45 seconds |
+
+## 3D rendering and polish (Three.js r160, vendored under game/vendor/)
+
+- Perspective third-person chase camera: smooth-lerped follow, look-ahead,
+  speed FOV kick, subtle shake on collisions. Higher and closer on foot.
+- Procedural 3D city from the same data as the logic: asphalt roads with
+  dashed centre lines and crosswalks, raised sidewalks, buildings with
+  emissive neon windows (Grand Tower much taller, with a blinking beacon),
+  neon sign strips, animated fountain discs, instanced street lights, night
+  sky with stars and fog.
+- Low-poly cars built from boxes (body, cabin, spinning wheels, visibly
+  steering front wheels), headlight spotlight on the player's car, neon
+  underglow, police cruisers with flashing red/blue light bars and halos.
+- Player and pedestrians as 3D characters; enemies distinct with red
+  markers; pickups as glowing floating icons (green cross, blue shield).
+- Lighting: ambient + directional moonlight with shadows, emissive neon,
+  muzzle flash light, exhaust/skid particle puffs.
+- Performance: shared geometries and materials, no per-frame allocations in
+  the hot loop, pixel ratio capped at 1.5, fog to limit draw distance.
+- Fallback: if WebGL cannot be created (headless without GPU), a 2D top-down
+  renderer takes over so the game still plays — never a blank screen.
+- HUD on a 2D overlay canvas: wanted stars, health/armor bars, cash, speed,
+  mission name/tip, objective arrow, minimap (player, cars, police,
+  pickups, destination marker), mission and game-complete summaries.
+  Auto-pause on tab switch (P to pause/resume).
+
+## Judge winrate
+
+Measured with the included harness:
+
+```sh
+node tools/winrate.mjs 200 1
+```
+
+**Result: 200/200 = 100.0%** (N=200, seeds 1–200). A win is all six
+missions complete with the ending screen, no wasted / busted / mission
+failed, and no >120s soft-lock.
+
+Also verified: `node tools/simtest.mjs` (all 17 checks pass),
+`node tools/playtest.mjs` (0 console errors, 0 failed requests, 0 external
+requests), and `node tools/shots.mjs` (4 screenshots, each under 256 KiB,
+0 errors, all visibly 3D).
 
 ## Controls
 
-| Key | Action |
-| --- | ------ |
-| WASD / arrows | Drive & walk |
-| E | Enter / exit car |
-| Mouse | Aim |
-| Click / Space | Shoot (pistol) |
+| Input | Action |
+|-------|--------|
+| WASD / Arrows | Drive or walk |
+| E | Steal / enter car |
+| Mouse | Aim, Click to shoot |
 | R | Reload |
-| F | Switch weapon |
+| Q | Switch weapon |
+| F | Punch |
 | H | Horn |
-| M | Mute / unmute |
-| ENTER | Start mission / continue / play again |
-
-## Missions (PAR targets)
-
-| # | Mission | PAR | Reward |
-| --- | ------- | --- | ------ |
-| 1 | Back in Town | 90s | $250 |
-| 2 | The Package | 150s | $400 |
-| 3 | Crew Call | 180s | $500 |
-| 4 | Bank of Neon Bay | 180s | $600 |
-| 5 | Sal's Enforcers | 240s | $800 |
-| 6 | The Long Goodbye | 150s | $1,000 |
-
-Beat a mission's PAR and the summary panel shows **★ BEAT PAR! ★**.
-Finish all six and the ending screen shows your per-mission times, total
-time, and — if you beat your previous best — **★ NEW BEST! ★**. Best
-times are kept in `localStorage` under `neonbay.bestTimes`.
-
-## The city
-
-- 3.2 km² neon grid: 6×6 road network, ~91 buildings (capped at ~55% of
-  each block), per-block shuffled roof palette, neon sign strips on ~25%
-  of buildings, park fountains on ~50% of parks, and the Grand Tower
-  landmark at the centre.
-- Traffic cars and pedestrians wander the streets; pedestrians wear
-  weighted shirt colours and turn at random.
-- Pickups: health at the plaza, armor at the docks (respawn every 30s).
-
-## Wanted & police
-
-- 0–5 wanted stars, driven by heat (stealing a car adds heat; the
-  getaway car in a delivery is free to take and adds none).
-- Police cruisers ram (damage 2) and back off for 3.0s after a hit;
-  on-foot cops can arrest you at 3+ stars. All police despawn when your
-  wanted level falls to 0.
-- Wall scrapes damage 2, car–car collisions damage 4.
-
-## Combat
-
-- Pistol: damage 40, 12-round mag, 1.0s reload. Enemy bullets deal 6.
-- Clearing a kill step grants +50 armor; completing a mission heals you
-  to full health.
-
-## Driving
-
-Cars steer with a 0.4 floor and a 3.2 turn rate, and bleed speed in hard
-turns so U-turns stay inside the 96-wide roads instead of swinging into
-a block. Top speed 460, reverse 160.
-
-## Verification
-
-```bash
-node tools/simtest.mjs   # 17 headless simulation tests
-node tools/playtest.mjs  # headless Chromium playtest (0 console errors)
-node tools/winrate.mjs   # judge winrate, N=200 seeds
-node tools/shots.mjs     # regenerate the 4 screenshots
-```
-
-Measured judge winrate (N=200, seeds 1–200): **200/200 = 100.0%**.
+| Shift | Run |
+| Enter | Start / retry |
+| P | Pause |
 
 ## Files
 
-- `game/index.html` — entry page (loading veil, noscript, meta).
-- `game/src/` — the game: `random.js` (seeded RNG), `config.js`
-  (tuning + places), `city.js` (procedural city), `world.js`
-  (simulation), `missions.js` (6 story missions), `render.js`
-  (canvas renderer + HUD + summary), `input.js` (keyboard/mouse),
-  `audio.js` (WebAudio synth SFX), `main.js` (loop + camera),
-  `shots.js` (screenshot scene setup).
-- `main.ts` — repo entrypoint (guards + build summary).
-- `serve.ts` — dev server (access log, HEAD support, `--quiet`).
-- `tools/` — verification harness (`simtest.mjs`, `playtest.mjs`,
-  `winrate.mjs`, `shots.mjs`) and `shots-report.json`.
-- `screenshots/` — 4 staged captures (`1-start`, `2-play`, `3-chase`,
-  `4-mission`), each under 256 KiB.
-- `vendor/makefun-game.ts` — kit file (do not modify).
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+- `game/index.html` — page, import map (`three` → `./vendor/three.module.js`), stacked canvases
+- `game/src/main.js` — boot, fixed-step game loop, screens, shot staging
+- `game/src/world.js` — simulation: driving, wanted/police, combat, missions
+- `game/src/render.js` — Three.js 3D renderer, HUD, 2D fallback, best times
+- `game/src/city.js` — procedural city (roads, buildings, parks, fountains)
+- `game/src/missions.js` — the six mission definitions
+- `game/src/config.js` — frozen tuning constants
+- `game/src/random.js` — seeded RNG helpers
+- `game/src/input.js` — keyboard + mouse input
+- `game/src/audio.js` — synthesized WebAudio bleeps (no audio assets)
+- `game/src/shots.js` — staged screenshot scenes
+- `game/vendor/three.module.js` — Three.js r160 (vendored library, MIT)
+- `main.ts` — entrypoint guard + build summary (`node main.ts`)
+- `serve.ts` — dev server (`node serve.ts --port 8080`)
+- `tools/` — `winrate.mjs`, `simtest.mjs`, `playtest.mjs`, `shots.mjs`
+- `screenshots/` — 1-start, 2-play, 3-chase, 4-mission

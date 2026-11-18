@@ -1,31 +1,27 @@
-// serve.ts — NEON BAY dev server.
-// Serves the game/ directory (game/index.html at /) with an access log,
-// HEAD support, and a --quiet flag.
-// Run with: node serve.ts [--port 8080] [--quiet]
-// Node 24 runs this .ts file directly (type stripping).
-
+// NEON BAY — dev server (erasable TypeScript, runs under `node serve.ts`).
+// Serves the game/ directory only (never outside the root). Access log with
+// timestamps (suppressed by --quiet), HEAD support, --port flag.
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { join, resolve, extname, normalize } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-// Document root is game/ (so / resolves to game/index.html and the
-// relative ./src/main.js in the page resolves to game/src/main.js).
-const ROOT = resolve(join(fileURLToPath(import.meta.url), '..', 'game'));
+import { join, extname, normalize, sep } from 'node:path';
 
 const args = process.argv.slice(2);
 let port = 8080;
 let quiet = false;
 for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--port' && args[i + 1]) port = Number(args[i + 1]);
-  if (args[i] === '--quiet') quiet = true;
+  if (args[i] === '--port' && args[i + 1]) {
+    port = Number(args[i + 1]);
+    i += 1;
+  } else if (args[i] === '--quiet') {
+    quiet = true;
+  }
 }
 
-const MIME = {
+const ROOT = join(new URL('.', import.meta.url).pathname, 'game');
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.ts': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
@@ -35,53 +31,48 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-function logLine(req, status, size) {
+const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#0a0a18"/><text x="16" y="23" font-size="20" font-family="sans-serif" font-weight="bold" fill="#22eeff" text-anchor="middle">N</text></svg>`;
+
+function logLine(status: number, method: string, url: string): void {
   if (quiet) return;
-  const ts = new Date().toISOString();
-  console.log(`[${ts}] ${req.method} ${req.url} -> ${status} (${size} B)`);
+  console.log(`[${new Date().toISOString()}] ${status} ${method} ${url}`);
 }
 
 const server = createServer((req, res) => {
-  const url = new URL(req.url ?? '/', `http://localhost:${port}`);
-  // Favicon: a tiny inline neon "N" so browsers don't 404.
-  if (url.pathname === '/favicon.ico' || url.pathname === '/favicon.svg') {
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#070b18"/><text x="16" y="23" font-size="20" font-family="sans-serif" font-weight="bold" fill="#ff2d95" text-anchor="middle">N</text></svg>';
-    res.writeHead(200, { 'content-type': 'image/svg+xml', 'content-length': Buffer.byteLength(svg) });
-    res.end(svg);
-    logLine(req, 200, Buffer.byteLength(svg));
+  const method = req.method ?? 'GET';
+  const rawUrl = req.url ?? '/';
+  const url = decodeURIComponent(rawUrl.split('?')[0] ?? '/');
+
+  if (url === '/favicon.ico') {
+    res.writeHead(200, { 'content-type': 'image/svg+xml', 'content-length': Buffer.byteLength(FAVICON) });
+    if (method !== 'HEAD') res.end(FAVICON);
+    else res.end();
+    logLine(200, method, rawUrl);
     return;
   }
-  let rel = decodeURIComponent(url.pathname);
-  if (rel === '/') rel = '/index.html';
-  // Never serve outside the repo root.
-  const filePath = resolve(join(ROOT, normalize(rel).replace(/^(\.\.[\/\\])+/, '')));
-  if (!filePath.startsWith(ROOT)) {
+
+  const rel = normalize(url === '/' ? 'index.html' : url.replace(/^\//, ''));
+  const file = join(ROOT, rel);
+  if (!file.startsWith(ROOT + sep) && file !== ROOT) {
     res.writeHead(403, { 'content-type': 'text/plain' });
-    res.end('Forbidden');
-    logLine(req, 403, 9);
+    res.end('403 forbidden');
+    logLine(403, method, rawUrl);
     return;
   }
-  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+  if (!existsSync(file) || !statSync(file).isFile()) {
     res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('Not found');
-    logLine(req, 404, 9);
+    res.end('404 not found');
+    logLine(404, method, rawUrl);
     return;
   }
-  const data = readFileSync(filePath);
-  const type = MIME[extname(filePath)] ?? 'application/octet-stream';
-  const headers = { 'content-type': type, 'content-length': data.length };
-  // HEAD: headers only, no body.
-  if (req.method === 'HEAD') {
-    res.writeHead(200, headers);
-    res.end();
-    logLine(req, 200, data.length);
-    return;
-  }
-  res.writeHead(200, headers);
-  res.end(data);
-  logLine(req, 200, data.length);
+  const body = readFileSync(file);
+  const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
+  res.writeHead(200, { 'content-type': type, 'content-length': body.length });
+  if (method !== 'HEAD') res.end(body);
+  else res.end();
+  logLine(200, method, rawUrl);
 });
 
 server.listen(port, () => {
-  console.log(`[neon-bay] serving ${ROOT} on http://localhost:${port}/`);
+  if (!quiet) console.log(`[neon-bay] serving game/ on http://localhost:${port}/`);
 });

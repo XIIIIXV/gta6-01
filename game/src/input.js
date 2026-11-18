@@ -1,107 +1,100 @@
-// NEON BAY — keyboard + mouse input (v3 rebuild).
-// Tracks keys and the mouse, and produces the input object stepWorld takes:
-//   { move:{x,y,active}, run, enterPressed, punchPressed, shootHeld,
-//     reloadPressed, switchPressed, hornPressed, aim:{x,y} }
-// Edge-triggered actions (enter, punch, reload, switch, horn) are true for
-// exactly one poll, then cleared. Aim is in world coordinates (the caller
-// supplies a screen->world mapping, since the camera lives in main.js).
+// NEON BAY — keyboard + mouse input (v5 rebuild, written from spec).
+// createInput() owns the raw state; attachInput wires DOM listeners;
+// pollInput(state, out) fills the persistent `out` object IN PLACE every
+// frame (the shape stepWorld expects) and returns nothing. Edge-triggered
+// actions (E / F / R / Q) are true for exactly one poll after the keypress.
 
-const MOVE_KEYS = {
-  KeyW: [0, -1], ArrowUp: [0, -1],
-  KeyS: [0, 1], ArrowDown: [0, 1],
-  KeyA: [-1, 0], ArrowLeft: [-1, 0],
-  KeyD: [1, 0], ArrowRight: [1, 0],
-};
-
-/** Fresh input state. */
+/** createInput(): fresh raw input state. */
 export function createInput() {
   return {
     keys: new Set(),
+    pressed: new Set(),
     mouseX: 0,
     mouseY: 0,
     mouseDown: false,
-    edge: { enter: false, punch: false, reload: false, switch: false, horn: false },
+    attached: false,
   };
 }
 
-/** Attach DOM listeners. Call once from main.js. */
-export function attachInput(state, element) {
-  const target = element || (typeof window !== 'undefined' ? window : null);
-  if (!target || !target.addEventListener) return;
-  target.addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-    state.keys.add(e.code);
-    if (e.code === 'KeyE') state.edge.enter = true;
-    if (e.code === 'KeyF' || e.code === 'Space') state.edge.punch = true;
-    if (e.code === 'KeyR') state.edge.reload = true;
-    if (e.code === 'KeyQ') state.edge.switch = true;
-    if (e.code === 'KeyH') state.edge.horn = true;
-    // Keep the page from scrolling on game keys.
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-  });
-  target.addEventListener('keyup', (e) => {
-    state.keys.delete(e.code);
-  });
-  target.addEventListener('blur', () => {
-    state.keys.clear();
-    state.mouseDown = false;
-  });
-  if (element && element.addEventListener) {
-    element.addEventListener('mousemove', (e) => {
-      const r = element.getBoundingClientRect();
-      state.mouseX = e.clientX - r.left;
-      state.mouseY = e.clientY - r.top;
-    });
-    element.addEventListener('mousedown', (e) => {
-      if (e.button === 0) state.mouseDown = true;
-    });
-    element.addEventListener('mouseup', (e) => {
-      if (e.button === 0) state.mouseDown = false;
-    });
-    element.addEventListener('contextmenu', (e) => e.preventDefault());
-  }
-}
-
-/** Whether a key is currently held. */
+/** isDown(state, code): is a KeyboardEvent.code currently held? */
 export function isDown(state, code) {
   return state.keys.has(code);
 }
 
+const GAME_KEYS = new Set([
+  'KeyW', 'KeyA', 'KeyS', 'KeyD',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  'KeyE', 'KeyF', 'KeyR', 'KeyQ', 'KeyH',
+  'ShiftLeft', 'ShiftRight', 'Enter', 'KeyP', 'Space',
+]);
+
 /**
- * Build the stepWorld input for this frame and clear the edge flags.
- * `toWorld(sx, sy)` maps screen pixels to world coordinates (for aim).
+ * attachInput(state, element): wire keyboard (window) and mouse (element)
+ * listeners. Safe to call once; a second call is a no-op.
  */
-export function pollInput(state, toWorld) {
-  let mx = 0;
-  let my = 0;
-  for (const code of state.keys) {
-    const d = MOVE_KEYS[code];
-    if (d) {
-      mx += d[0];
-      my += d[1];
+export function attachInput(state, element) {
+  if (state.attached || typeof window === 'undefined') return;
+  state.attached = true;
+  window.addEventListener('keydown', (e) => {
+    if (GAME_KEYS.has(e.code)) e.preventDefault();
+    if (!e.repeat) {
+      state.keys.add(e.code);
+      state.pressed.add(e.code);
     }
-  }
-  const len = Math.hypot(mx, my);
-  if (len > 1) {
-    mx /= len;
-    my /= len;
-  }
-  const aim = toWorld ? toWorld(state.mouseX, state.mouseY) : { x: 0, y: 0 };
-  const out = {
-    move: { x: mx, y: my, active: len > 0 },
-    run: state.keys.has('ShiftLeft') || state.keys.has('ShiftRight'),
-    enterPressed: state.edge.enter,
-    punchPressed: state.edge.punch,
-    shootHeld: state.mouseDown,
-    reloadPressed: state.edge.reload,
-    switchPressed: state.edge.switch,
-    hornPressed: state.edge.horn,
-    aim,
-  };
-  state.edge.enter = false;
-  state.edge.punch = false;
-  state.edge.reload = false;
-  state.edge.switch = false;
-  state.edge.horn = false;
+  });
+  window.addEventListener('keyup', (e) => {
+    state.keys.delete(e.code);
+  });
+  window.addEventListener('blur', () => {
+    state.keys.clear();
+    state.mouseDown = false;
+  });
+  const target = element ?? window;
+  target.addEventListener('mousemove', (e) => {
+    state.mouseX = e.clientX;
+    state.mouseY = e.clientY;
+  });
+  target.addEventListener('mousedown', (e) => {
+    if (e.button === 0) state.mouseDown = true;
+    state.mouseX = e.clientX;
+    state.mouseY = e.clientY;
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) state.mouseDown = false;
+  });
+  target.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+/**
+ * pollInput(state, out): fill `out` in place with this frame's input.
+ * out shape: { move: {x, y, active}, run, enterPressed, punchPressed,
+ * shootHeld, reloadPressed, switchPressed, aim: {x, y} }.
+ * aim is in SCREEN pixels here — main.js converts it to world coords
+ * via renderer.screenToWorld before stepping the world.
+ * Edge actions are consumed: they read true once, then clear.
+ */
+export function pollInput(state, out) {
+  const left = state.keys.has('KeyA') || state.keys.has('ArrowLeft');
+  const right = state.keys.has('KeyD') || state.keys.has('ArrowRight');
+  const up = state.keys.has('KeyW') || state.keys.has('ArrowUp');
+  const down = state.keys.has('KeyS') || state.keys.has('ArrowDown');
+  const mx = (right ? 1 : 0) - (left ? 1 : 0);
+  const my = (down ? 1 : 0) - (up ? 1 : 0);
+  out.move.x = mx;
+  out.move.y = my;
+  out.move.active = mx !== 0 || my !== 0;
+  out.run = state.keys.has('ShiftLeft') || state.keys.has('ShiftRight');
+  out.enterPressed = state.pressed.has('KeyE');
+  out.punchPressed = state.pressed.has('KeyF');
+  out.reloadPressed = state.pressed.has('KeyR');
+  out.switchPressed = state.pressed.has('KeyQ');
+  out.shootHeld = state.mouseDown;
+  out.aim.x = state.mouseX;
+  out.aim.y = state.mouseY;
+  // Consume the edge-triggered presses so they fire exactly once.
+  state.pressed.delete('KeyE');
+  state.pressed.delete('KeyF');
+  state.pressed.delete('KeyR');
+  state.pressed.delete('KeyQ');
   return out;
 }

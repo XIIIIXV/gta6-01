@@ -1,84 +1,82 @@
-// NEON BAY — WebAudio sound effects (v3 rebuild).
-// All sounds are synthesized (no audio files): short oscillator blips for
-// pickups, failure, horn, gunfire and UI. Lazily creates the AudioContext on
-// first use (browsers require a user gesture), and stays silent in Node.
+// NEON BAY — tiny WebAudio bleeps (v5 rebuild, written from spec).
+// All sounds are synthesized with oscillators; no audio assets, no network.
+// Everything is guarded: in a headless / muted context every call is a no-op.
 
 let ctx = null;
 let master = null;
 let volume = 0.5;
 
-function ensureCtx() {
-  if (typeof window === 'undefined') return null;
-  if (!ctx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    ctx = new AC();
-    master = ctx.createGain();
-    master.gain.value = volume;
-    master.connect(ctx.destination);
+/** unlockAudio(): create/resume the AudioContext on first user interaction. */
+export function unlockAudio() {
+  try {
+    if (typeof window === 'undefined' || !window.AudioContext) return;
+    if (!ctx) {
+      ctx = new window.AudioContext();
+      master = ctx.createGain();
+      master.gain.value = volume;
+      master.connect(ctx.destination);
+    }
+    if (ctx.state === 'suspended') void ctx.resume();
+  } catch {
+    // Audio is cosmetic; never let it break the game.
   }
-  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-  return ctx;
 }
 
-function blip(freq, dur, type = 'sine', vol = 0.5, slideTo = null) {
-  const ac = ensureCtx();
-  if (!ac) return;
-  const t = ac.currentTime;
-  const osc = ac.createOscillator();
-  const gain = ac.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, t);
-  if (slideTo !== null) osc.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t + dur);
-  gain.gain.setValueAtTime(vol, t);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  osc.connect(gain);
-  gain.connect(master);
-  osc.start(t);
-  osc.stop(t + dur + 0.02);
-}
-
-/** Master volume 0..1. */
+/** setMasterVolume(v): 0..1 master gain. */
 export function setMasterVolume(v) {
   volume = Math.max(0, Math.min(1, v));
   if (master) master.gain.value = volume;
 }
 
-/** Bright two-note pickup chime. */
+function blip(freq, dur, type = 'sine', gain = 0.15, slideTo = null) {
+  if (!ctx || !master || ctx.state !== 'running') return;
+  try {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (slideTo !== null) osc.frequency.exponentialRampToValueAtTime(slideTo, ctx.currentTime + dur);
+    g.gain.setValueAtTime(gain, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    osc.connect(g);
+    g.connect(master);
+    osc.start();
+    osc.stop(ctx.currentTime + dur + 0.02);
+  } catch {
+    // Ignore audio failures.
+  }
+}
+
+/** playPickup(): bright two-note chime for health/armor pickups. */
 export function playPickup() {
-  blip(880, 0.12, 'sine', 0.5);
-  setTimeout(() => blip(1320, 0.18, 'sine', 0.5), 70);
+  blip(660, 0.09, 'sine', 0.16);
+  setTimeout(() => blip(990, 0.12, 'sine', 0.14), 70);
 }
 
-/** Low failure buzz. */
+/** playFail(): low buzz for mission failure / wasted. */
 export function playFail() {
-  blip(220, 0.35, 'sawtooth', 0.35, 110);
+  blip(160, 0.35, 'sawtooth', 0.12, 70);
 }
 
-/** Car horn: two short square honks. */
+/** playHonk(): short car horn (two detuned squares). */
 export function playHonk() {
-  blip(370, 0.14, 'square', 0.25);
-  setTimeout(() => blip(370, 0.14, 'square', 0.25), 160);
+  blip(370, 0.18, 'square', 0.07);
+  blip(466, 0.18, 'square', 0.06);
 }
 
-/** Gunshot crack. */
+/** playShoot(): short noise-ish crack for the pistol. */
 export function playShoot() {
-  blip(180, 0.09, 'square', 0.3, 60);
+  blip(900, 0.06, 'square', 0.09, 220);
 }
 
-/** Mission-complete fanfare (three rising notes). */
+/** playMissionComplete(): rising three-note jingle. */
 export function playMissionComplete() {
-  blip(523, 0.14, 'triangle', 0.45);
-  setTimeout(() => blip(659, 0.14, 'triangle', 0.45), 120);
-  setTimeout(() => blip(784, 0.28, 'triangle', 0.5), 240);
+  blip(523, 0.1, 'sine', 0.16);
+  setTimeout(() => blip(659, 0.1, 'sine', 0.16), 90);
+  setTimeout(() => blip(784, 0.18, 'sine', 0.16), 180);
 }
 
-/** Short UI click. */
+/** playClick(): UI click for menus. */
 export function playClick() {
-  blip(1200, 0.05, 'sine', 0.3);
-}
-
-/** Unlock the audio context (call from a user gesture). */
-export function unlockAudio() {
-  ensureCtx();
+  blip(440, 0.05, 'sine', 0.1);
 }
